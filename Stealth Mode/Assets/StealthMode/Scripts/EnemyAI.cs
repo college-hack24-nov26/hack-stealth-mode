@@ -9,7 +9,7 @@ namespace StealthMode
     /// </summary>
     public class EnemyAI : MonoBehaviour
     {
-        public enum Role { Tower, DoorGuard, Rear, Runner }
+        public enum Role { Tower, DoorGuard, Rear, Runner, Inside }
 
         public string id = "Enemy-1";
         public Role role;
@@ -28,6 +28,8 @@ namespace StealthMode
         public string Killer { get; private set; }
 
         float baseYaw, nextBurst;
+        SoldierRig.Stance coverStance;
+        bool toCover;   // run path ends at a firing position instead of inside the warehouse
 
         void Start()
         {
@@ -109,6 +111,26 @@ namespace StealthMode
                 CombatFx.I.Play("bullet_crack", closest, 0.8f, 2f);
         }
 
+        /// <summary>Burst out to a firing position: wait, sprint along the path, then take cover there and fire at the Engineer's cover.</summary>
+        public void Assault(Vector3[] path, SoldierRig.Stance stance, float delay)
+        {
+            if (Dead) return;
+            gameObject.SetActive(true);
+            StopAllCoroutines();
+            Inside = false; Running = false; Alerted = true;
+            runPath = path; coverStance = stance; toCover = true; canFire = true;
+            if (role == Role.Runner) role = Role.DoorGuard;   // out in the open now: he can be hit like anyone else
+            nextBurst = float.MaxValue;
+            transform.position = path[0];
+            StartCoroutine(AssaultRoutine(delay));
+        }
+
+        IEnumerator AssaultRoutine(float delay)
+        {
+            yield return new WaitForSeconds(delay);
+            StartRun();
+        }
+
         void StartRun()
         {
             Running = true;
@@ -121,7 +143,15 @@ namespace StealthMode
 
         void RunStep()
         {
-            if (runPath == null || pathIndex >= runPath.Length) { Inside = true; gameObject.SetActive(false); return; }
+            if (runPath == null || pathIndex >= runPath.Length)
+            {
+                if (!toCover) { Inside = true; gameObject.SetActive(false); return; }
+                // in position: drop into cover, shoulder the rifle, first burst after a beat
+                Running = false; toCover = false;
+                rig.stance = coverStance; rig.aiming = true;
+                nextBurst = Time.time + Random.Range(0.4f, 1.2f);
+                return;
+            }
             var target = runPath[pathIndex];
             var to = target - transform.position; to.y = 0;
             if (to.magnitude < 0.4f) { pathIndex++; return; }

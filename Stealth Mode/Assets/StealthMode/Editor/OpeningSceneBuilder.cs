@@ -435,6 +435,13 @@ namespace StealthMode.EditorTools
                 {
                     var yaw = c.yaw + (l > 0 ? Random.Range(-4f, 4f) : 0f);
                     var go = Place($"{EnvDir}/Container40.fbx", new Vector3(c.x, 2.591f * l, c.z), yaw, envRoot, l == 0 ? c.name : c.name + " (stacked)");
+                    foreach (var mc in go.GetComponentsInChildren<MeshCollider>())
+                    {
+                        // solid, closed steel box: nothing (head, rifle round, body) gets inside a container
+                        var b = mc.GetComponent<MeshFilter>().sharedMesh.bounds;
+                        var bc = mc.gameObject.AddComponent<BoxCollider>(); bc.center = b.center; bc.size = b.size;
+                        Object.DestroyImmediate(mc);
+                    }
                     var mat = colors[(c.color + l * 3) % colors.Length];
                     foreach (var r in go.GetComponentsInChildren<MeshRenderer>())
                         r.sharedMaterials = r.sharedMaterials.Select(m => m != null && m.name == "container_side" ? mat : m).ToArray();
@@ -572,6 +579,7 @@ namespace StealthMode.EditorTools
             {
                 if (r is ParticleSystemRenderer || r is LineRenderer || r is TrailRenderer) continue;
                 if (r.GetComponentInParent<Unity.XR.CoreUtils.XROrigin>() != null) continue;   // hands + the Engineer's rifle stay solid
+                if (Solid(r.transform)) continue;   // warehouse walls and shipping containers are never see-through
                 var mats = r.sharedMaterials; bool changed = false;
                 for (int i = 0; i < mats.Length; i++)
                 {
@@ -583,6 +591,12 @@ namespace StealthMode.EditorTools
                 if (changed) r.sharedMaterials = mats;
             }
             AssetDatabase.SaveAssets();
+        }
+
+        static bool Solid(Transform t)
+        {
+            for (; t; t = t.parent) if (t.name.StartsWith("Warehouse") || t.name.StartsWith("Shipment")) return true;
+            return false;
         }
 
         static Material Translucent(Material src, string dir)
@@ -637,6 +651,14 @@ namespace StealthMode.EditorTools
             a3.canFire = false;
             var a4 = AI(e4, "Enemy-4", StealthMode.EnemyAI.Role.DoorGuard);
             var a5 = AI(e5, "Enemy-5", StealthMode.EnemyAI.Role.Rear);
+            // Enemy-6..10 guard the bomb inside (warehouse floor is 0.35 m up); they come out in beat 1
+            var inside = new[] { new Vector3(-6f, 0.35f, 2f), new Vector3(2f, 0.35f, 3f), new Vector3(-2f, 0.35f, 6f), new Vector3(5f, 0.35f, -1f), new Vector3(-8f, 0.35f, -3f) };
+            var insiders = new StealthMode.EnemyAI[inside.Length];
+            for (int i = 0; i < inside.Length; i++)
+            {
+                var g = Soldier(i % 2 == 0 ? "Enemy_B" : "Enemy_A", $"Enemy-{6 + i} (inside)", inside[i], i * 72f, "AK47", enemies);
+                insiders[i] = AI(g, $"Enemy-{6 + i}", StealthMode.EnemyAI.Role.Inside);
+            }
 
             // Team Alpha
             var comms = Soldier("Soldier_IN", "Comms (beside Engineer)", new Vector3(26.1f, 0, -23.25f), -75f, "AK203", squad);
@@ -696,6 +718,8 @@ namespace StealthMode.EditorTools
             dir.comms = comms.GetComponent<StealthMode.SoldierRig>();
             dir.sniper1Muzzle = MuzzleOf(s1); dir.sniper2Muzzle = MuzzleOf(s2);
             dir.player = pr; dir.radio = radio; dir.alarm = alarm;
+            dir.insiders = insiders;
+            dir.gameObject.AddComponent<StealthMode.HeartLink>();
 
             // light probes over the compound for characters and props
             var probes = new GameObject("Light Probes").AddComponent<LightProbeGroup>();

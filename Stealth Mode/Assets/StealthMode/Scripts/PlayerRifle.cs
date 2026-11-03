@@ -15,8 +15,12 @@ namespace StealthMode
         public Camera cam;
         public Transform trackingSpace;     // XR camera offset (hand joints are reported in this space)
         public float roundsPerSecondCap = 9f;
+        public bool armed = true;           // false until the start gate: the start press must not fire a round
 
         public bool XrActive { get; private set; }
+        /// <summary>Right trigger (headset) or left click / Space (desktop) went down this frame.</summary>
+        public bool TriggerDown => XrActive ? rTrigger != null && rTrigger.WasPressedThisFrame()
+            : (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame) || (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame);
         public System.Func<Vector3, Vector3, bool> fireFilter;  // optional: return false to block a shot
 
         Transform muzzle;
@@ -76,7 +80,7 @@ namespace StealthMode
             // recoil kicks the muzzle up about the fist
             var rot = gripRot * Quaternion.Euler(-recoil * 5f, 0, 0) * Quaternion.Inverse(GripInRifle);
             rifle.SetPositionAndRotation(gripPos - rot * GripCenterLocal, rot);
-            if (rTrigger.WasPressedThisFrame()) Fire(muzzle.position, muzzle.forward);
+            if (armed && rTrigger.WasPressedThisFrame()) Fire(muzzle.position, muzzle.forward);
         }
 
         // ---------------------------------------------------------------- desktop / editor
@@ -98,7 +102,7 @@ namespace StealthMode
             cam.transform.localRotation = Quaternion.Euler(look.y - recoil * 3f, look.x - transform.eulerAngles.y, -lean * 8f);
             rifle.position = cam.transform.TransformPoint(new Vector3(0.13f, -0.17f, 0.32f - recoil * 0.04f));
             rifle.rotation = cam.transform.rotation * Quaternion.Euler(-recoil * 4f, 0, 0);
-            if (mouse != null && mouse.leftButton.wasPressedThisFrame) Fire(cam.transform.position, cam.transform.forward);
+            if (armed && mouse != null && mouse.leftButton.wasPressedThisFrame) Fire(cam.transform.position, cam.transform.forward);
         }
 
         /// <summary>Aim the desktop camera straight at a world point (used by the automated play-test).</summary>
@@ -123,6 +127,8 @@ namespace StealthMode
             if (fireFilter != null && !fireFilter(origin, dir)) return;
             lastShot = Time.time;
             recoil = 1f;
+            if (XrActive && UnityEngine.InputSystem.XR.XRController.rightHand is UnityEngine.InputSystem.XR.XRControllerWithRumble pad)
+                pad.SendImpulse(0.9f, 0.06f);   // recoil felt in the hand
             CombatFx.I.MuzzleFlash(muzzle, 1.1f);
             CombatFx.I.Play("ak_close", muzzle.position, 1f, 6f, spatial: false);
             string target = null, part = null; float dist = -1;

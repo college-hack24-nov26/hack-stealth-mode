@@ -32,3 +32,6 @@ assets_src/downloads/
 # Unity temp / debug
 Stealth Mode/.utmp/
 Stealth Mode/*_BurstDebugInformation_DoNotShip/
+
+# WHOOP relay session logs (personal heart data)
+mac/sessions/

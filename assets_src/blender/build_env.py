@@ -266,6 +266,19 @@ def build_container():
     ob.select_set(True)
     bpy.context.view_layer.objects.active = ob
     bpy.ops.object.transform_apply(location=True)
+    # the corrugated side walls and the front end wall come out wound inward, so from outside they were back-face
+    # culled and the box looked open; turn every wall face that points into the box back outward
+    bm = bmesh.new(); bm.from_mesh(ob.data)
+    flip = []
+    for f in bm.faces:
+        c, n = f.calc_center_median(), f.normal
+        if abs(n.y) > 0.05 and abs(c.y) > hw - 0.3 and n.y * c.y < 0:     # side walls incl. the slanted ribs
+            flip.append(f)
+        elif abs(n.x) > 0.05 and abs(c.x) > L / 2 - 0.35 and n.x * c.x < 0:
+            flip.append(f)
+    bmesh.ops.reverse_faces(bm, faces=flip)
+    bm.to_mesh(ob.data); bm.free()
+    print("CONTAINER flipped", len(flip), "faces")
     return ob
 
 
@@ -632,6 +645,8 @@ def main():
     import sys
     if "--tower" in sys.argv:
         reset(); export([build_watchtower()], os.path.join(UNITY_MODELS, "Env", "Watchtower.fbx")); print("BUILD_ENV_DONE tower"); return
+    if "--container" in sys.argv:
+        reset(); export([build_container()], os.path.join(UNITY_MODELS, "Env", "Container40.fbx")); print("BUILD_ENV_DONE container"); return
     if "--terrain" in sys.argv:
         reset(); export([build_terrain()], os.path.join(UNITY_MODELS, "Env", "Terrain.fbx")); print("BUILD_ENV_DONE terrain"); return
     props_only = "--props" in sys.argv
