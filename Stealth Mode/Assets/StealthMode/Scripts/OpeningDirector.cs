@@ -233,7 +233,10 @@ namespace StealthMode
             }
             yield return Say("r13_captain_in");
             Debug.Log("[StealthMode] BEAT 2: Captain + Doc inside");
-            OpeningMetrics.Save();      // snapshot; the firefight out front carries on into beat 3
+            OpeningMetrics.Save();      // snapshot
+            // the script ends here for now (beats 3-8 are not built): close the debrief session and let the relay stand down
+            yield return new WaitForSeconds(20f);
+            HeartLink.EndMission("failed", "script ends after beat 2 (build in progress)");
         }
 
         IEnumerator Flank(SoldierRig rig, float delay, bool lead)

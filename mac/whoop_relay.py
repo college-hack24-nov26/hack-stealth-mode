@@ -1,43 +1,59 @@
-"""WHOOP -> Quest heart-rate relay (Stealth Mode, Scenario One).
+"""Stealth Mode relay: WHOOP heart rate + mission events -> debrief app, only while a mission is running.
 
-WHOOP with "Broadcast Heart Rate" ON advertises the standard Bluetooth Heart Rate Service (0x180D). This script
-subscribes to it, works out a stress level from the rise over the resting baseline, and streams it to the headset:
+Leave this running on the Mac (double-click "StealthMode Relay.command", Terminal.app has the Bluetooth permission).
+It sits idle: no Bluetooth, no uploads. Everything starts when the Engineer presses the RIGHT TRIGGER in the headset
+and ends with the mission:
 
-    Mac -> Quest  UDP 5005  {"t": <unix s>, "hr": 72, "level": 0-3, "baseline": 68}
-    Quest -> Mac  UDP 5006  {"type": "hello"} until it hears us, then {"type": "event", "name": ..., "hr": ...}
+    idle --(Quest sends mission_start)--> RUNNING --(mission_end | headset silent 30 s | Ctrl-C)--> idle
 
-Until the headset says hello, packets go to the LAN broadcast address (and localhost for the Unity editor);
-after that, straight to the headset. Every sample and every mission event is logged to mac/sessions/.
+RUNNING = connect to the WHOOP (standard Bluetooth Heart Rate Service, Broadcast Heart Rate ON in the WHOOP app),
+open a session in the debrief app, then once a second upload heart rate (+ R-R intervals for HRV) and the event
+timeline. Mission end = upload what is left, close the session, disconnect the WHOOP, back to idle. No manual
+start/stop, no run left "in progress".
 
-Debrief app: when the headset sends `mission_start`, a session is opened in Supabase (web-app/.env.local:
-NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, STEALTH_DEVICE_KEY) and from then on the heart rate
-(with R-R intervals, for HRV) and the event timeline are pushed once a second through the device-keyed RPCs.
-The last 60 s before the start go up as the resting baseline (negative t_ms). The app does all the analysis.
+    Quest -> Mac  UDP 5006  {"type":"hello"} (until heard) | {"type":"beat","mid":M} every 2 s |
+                            {"type":"event","mid":M,"n":N,"ev":..,"actor":..,"t_ms":..,"data":{..}}
+    Mac -> Quest  UDP 5005  {"hr":72,"level":0-3,"baseline":68} each second | {"type":"ack","n":N} per event
 
-Run from macOS Terminal.app (the Claude shell has no Bluetooth permission):
-    python3 mac/whoop_relay.py            # optional: --quest 192.168.x.y
+Events carry a per-mission sequence number n: the relay acks each one (the Quest resends until acked), drops
+duplicates, and waits for gaps before closing, so nothing is lost or doubled. Debrief credentials are read from
+web-app/.env.local. Logs: mac/sessions/relay.log, whoop_*.csv, events_*.csv.
+
+    python3 mac/whoop_relay.py [--name "Pulin Chaudhari"]
+    --simulate   fake heart rate instead of the WHOOP (tests)      --dry-run   no uploads (tests)
 """
-import argparse, asyncio, collections, csv, json, os, socket, statistics, time, urllib.request
-
-from bleak import BleakClient, BleakScanner
+import argparse, asyncio, csv, json, math, os, random, signal, socket, statistics, time, urllib.error, urllib.request
 
 HR_SERVICE = "0000180d-0000-1000-8000-00805f9b34fb"
 HR_MEASUREMENT = "00002a37-0000-1000-8000-00805f9b34fb"
 HR_PORT, EVENT_PORT = 5005, 5006
-BASELINE_S = 45          # resting window after connecting
+BASELINE_S = 45          # resting window: the first seconds of the mission (briefing)
 LEVELS = (8, 18, 30)     # bpm above baseline for stress level 1, 2, 3
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "sessions")
+os.makedirs(OUT, exist_ok=True)
+LOG = os.path.join(OUT, "relay.log")
+ADDR_CACHE = os.path.join(OUT, ".whoop_address")
 
 
-def parse_hr(data: bytearray):
+def log(msg):
+    line = f"{time.strftime('%H:%M:%S')}  {msg}"
+    print(line, flush=True)
+    try:
+        with open(LOG, "a") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
+def parse_hr(data):
     """Heart Rate Measurement (0x2A37): flags bit0 uint16 bpm, bit3 energy field, bit4 R-R intervals (1/1024 s)."""
-    flags, i = data[0], 1
+    flags = data[0]
     if flags & 0x01:
-        bpm = int.from_bytes(data[1:3], "little"); i = 3
+        bpm, i = int.from_bytes(data[1:3], "little"), 3
     else:
-        bpm = data[1]; i = 2
+        bpm, i = data[1], 2
     if flags & 0x08:
         i += 2
     rr = []
@@ -47,201 +63,315 @@ def parse_hr(data: bytearray):
     return bpm, rr
 
 
-def load_env():
-    env = {}
-    path = os.path.join(HERE, "..", "web-app", ".env.local")
-    if os.path.exists(path):
-        for line in open(path):
-            if "=" in line and not line.lstrip().startswith("#"):
-                k, v = line.strip().split("=", 1)
-                env[k] = v.strip().strip('"')
-    return env
+class RpcError(Exception):
+    def __init__(self, fn, code, body):
+        super().__init__(f"{fn}: HTTP {code} {body[:200]}")
+        self.code, self.body = code, body
 
 
 class Debrief:
     """Supabase ingest RPCs (same calls as web-app/scripts/simulate-session.ts)."""
 
     def __init__(self, name):
-        env = load_env()
+        env = {}
+        path = os.path.join(HERE, "..", "web-app", ".env.local")
+        if os.path.exists(path):
+            for line in open(path):
+                if "=" in line and not line.lstrip().startswith("#"):
+                    k, v = line.strip().split("=", 1)
+                    env[k] = v.strip().strip('"')
         self.url, self.anon, self.key = env.get("NEXT_PUBLIC_SUPABASE_URL"), env.get("NEXT_PUBLIC_SUPABASE_ANON_KEY"), env.get("STEALTH_DEVICE_KEY")
         self.ok = bool(self.url and self.anon and self.key)
         self.name = name
-        self.session = None
-        if not self.ok:
-            print("debrief upload off: web-app/.env.local missing Supabase settings")
 
     def rpc(self, fn, **args):
         body = json.dumps({"p_key": self.key, **args}).encode()
         req = urllib.request.Request(f"{self.url}/rest/v1/rpc/{fn}", data=body, method="POST", headers={
             "apikey": self.anon, "Authorization": f"Bearer {self.anon}", "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            txt = r.read().decode()
-            return json.loads(txt) if txt else None
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                txt = r.read().decode()
+                return json.loads(txt) if txt else None
+        except urllib.error.HTTPError as e:      # the server understood and refused: never worth retrying as-is
+            raise RpcError(fn, e.code, e.read().decode()) from None
+
+
+class Mission:
+    def __init__(self, mid, t0):
+        self.mid, self.t0 = mid, t0
+        self.last_rx = time.time()
+        self.seen = set()
+        self.hr_out, self.ev_out = [], []
+        self.session = None
+        self.running, self.ended = True, False
+        self.task = None
+        self.lock = asyncio.Lock()
+        self.window, self.baseline, self.hr = [], None, 0
+        self.bad_rr = self.n_hr = self.n_ev = 0
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        self.hr_f = open(os.path.join(OUT, f"whoop_{stamp}.csv"), "w", newline="", buffering=1)
+        self.ev_f = open(os.path.join(OUT, f"events_{stamp}.csv"), "w", newline="", buffering=1)
+        self.hr_csv, self.ev_csv = csv.writer(self.hr_f), csv.writer(self.ev_f)
+        self.hr_csv.writerow(["unix_t", "mission_ms", "hr", "level", "baseline"])
+        self.ev_csv.writerow(["unix_t", "mission_ms", "event", "actor", "hr_at_event"])
 
 
 class Relay:
-    def __init__(self, quest, name):
-        os.makedirs(OUT, exist_ok=True)
-        stamp = time.strftime("%Y%m%d_%H%M%S")
-        self.hr_log = csv.writer(open(os.path.join(OUT, f"whoop_{stamp}.csv"), "w", newline="", buffering=1))
-        self.hr_log.writerow(["unix_t", "hr", "level", "baseline"])
-        self.ev_log = csv.writer(open(os.path.join(OUT, f"events_{stamp}.csv"), "w", newline="", buffering=1))
-        self.ev_log.writerow(["unix_t", "quest_t", "event", "hr_at_event", "quest_hr"])
+    def __init__(self, a):
+        self.a = a
+        self.debrief = None if a.dry_run else Debrief(a.name)
         self.tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.tx.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.rx.bind(("0.0.0.0", EVENT_PORT))
         self.rx.setblocking(False)
-        self.quest = quest
-        self.connected_at = None
-        self.window = []
-        self.baseline = None
-        self.hr = 0
-        self.debrief = Debrief(name)
-        self.t0 = None                  # wall clock of mission start (t_ms = 0)
-        self.recent = collections.deque(maxlen=60)   # (unix_t, bpm, rr) before the start: resting baseline
-        self.hr_out, self.ev_out = [], []
+        self.quest = a.quest
+        self.mission = None
 
-    def level(self, hr):
-        if self.baseline is None:
-            return 0
-        rise = hr - self.baseline
-        return sum(rise >= x for x in LEVELS)
-
-    def on_hr(self, _, data):
-        hr, rr = parse_hr(data)
-        if hr <= 0:
-            return
-        self.hr = hr
-        now = time.time()
-        if self.t0 is None:
-            self.recent.append((now, hr, rr))
-        else:
-            self.hr_out.append({"t_ms": round((now - self.t0) * 1000), "bpm": hr, "rr_ms": rr or None})
-        if self.baseline is None:
-            self.window.append(hr)
-            if now - self.connected_at >= BASELINE_S:
-                self.baseline = round(statistics.median(self.window))
-                print(f"baseline set: {self.baseline} bpm")
-        lvl = self.level(hr)
-        msg = json.dumps({"t": round(now, 3), "hr": hr, "level": lvl, "baseline": self.baseline}).encode()
-        targets = [(self.quest, HR_PORT)] if self.quest else [("255.255.255.255", HR_PORT), ("127.0.0.1", HR_PORT)]
-        for addr in targets:
-            try:
-                self.tx.sendto(msg, addr)
-            except OSError as e:
-                print("send failed", addr, e)
-        self.hr_log.writerow([round(now, 3), hr, lvl, self.baseline])
-        print(f"HR {hr:3d}  level {lvl}  baseline {self.baseline or '...'}  -> {self.quest or 'broadcast'}")
-
-    async def listen_quest(self):
+    # ------------------------------------------------------------ network in
+    async def listen(self):
+        loop = asyncio.get_running_loop()
         while True:
-            try:
-                data, (ip, _) = self.rx.recvfrom(2048)
-            except BlockingIOError:
-                await asyncio.sleep(0.05)
-                continue
+            data, (ip, _) = await loop.sock_recvfrom(self.rx, 8192)
             try:
                 m = json.loads(data.decode())
             except ValueError:
                 continue
-            if m.get("type") == "hello":
-                if self.quest != ip:
-                    print(f"headset found at {ip} ({m.get('device', '?')})")
-                self.quest = ip
-            elif m.get("type") == "event":
-                self.quest = self.quest or ip
-                ev = m.get("ev") or m.get("name")
-                self.ev_log.writerow([round(time.time(), 3), m.get("t_ms"), ev, self.hr, m.get("hr")])
-                print(f"EVENT {ev} {json.dumps(m.get('data', {}))}  (HR {self.hr})")
-                if ev == "mission_start":
-                    await self.open_session(m.get("t_ms", 0))
-                if self.t0 is not None:
-                    self.ev_out.append({"t_ms": int(m.get("t_ms", 0)), "type": ev, "actor": m.get("actor"), "data": m.get("data", {})})
-                if ev == "mission_end":
-                    await self.flush()
-                    await self.close_session(m)
-
-    async def open_session(self, quest_t_ms):
-        self.t0 = time.time() - quest_t_ms / 1000
-        self.hr_out = [{"t_ms": round((t - self.t0) * 1000), "bpm": b, "rr_ms": rr or None} for t, b, rr in self.recent]
-        self.ev_out = []
-        if not self.debrief.ok:
-            return
-        try:
-            d = self.debrief
-            trainee = await asyncio.to_thread(d.rpc, "upsert_trainee", p_name=d.name, p_resting_hr=self.baseline)
-            d.session = await asyncio.to_thread(d.rpc, "start_session", p_trainee=trainee)
-            print(f"DEBRIEF session {d.session} for {d.name}")
-        except Exception as e:
-            print("debrief start failed:", e)
-
-    async def close_session(self, m):
-        d = self.debrief
-        if d.ok and d.session:
-            data = m.get("data", {})
             try:
-                await asyncio.to_thread(d.rpc, "end_session", p_session=d.session, p_outcome=data.get("outcome", "failed"),
-                                        p_reason=data.get("reason", ""), p_duration_ms=int(m.get("t_ms", 0)))
-                print("DEBRIEF session closed")
-            except Exception as e:
-                print("debrief end failed:", e)
-        self.t0, d.session = None, None
+                await self.on_packet(ip, m)
+            except Exception as e:      # one bad packet must never take the relay down
+                log(f"packet error: {e!r}")
 
-    async def flush(self):
-        d = self.debrief
-        if not (d.ok and d.session):
+    def ack(self, ip, n):
+        if n is not None:
+            try:
+                self.tx.sendto(json.dumps({"type": "ack", "n": n}).encode(), (ip, HR_PORT))
+            except OSError:
+                pass
+
+    async def on_packet(self, ip, m):
+        kind, mi = m.get("type"), self.mission
+        mine = mi is not None and m.get("mid") == mi.mid
+        if mine:
+            mi.last_rx = time.time()
+            self.quest = ip
+        if kind == "hello":
+            if ip != self.quest:
+                log(f"headset found at {ip} ({m.get('device', '?')})")
+            self.quest = ip
             return
-        ev, hr = self.ev_out, self.hr_out
-        self.ev_out, self.hr_out = [], []
-        try:
-            if ev:
-                await asyncio.to_thread(d.rpc, "push_events", p_session=d.session, p_events=ev)
-            if hr:
-                await asyncio.to_thread(d.rpc, "push_hr", p_session=d.session, p_samples=hr)
-        except Exception as e:
-            print("debrief push failed (will retry):", e)
-            self.ev_out, self.hr_out = ev + self.ev_out, hr + self.hr_out
+        if kind != "event":
+            return
+        ev, n = m.get("ev"), m.get("n")
+        if ev == "mission_start" and not mine:
+            if mi:
+                await self.end_mission(mi, "failed", "aborted: a new mission started")
+            self.quest = ip
+            mi = self.start_mission(m)
+        elif not mine:
+            self.ack(ip, n)             # late resend from a mission that is already closed: silence it
+            return
+        self.ack(ip, n)
+        if n in mi.seen:
+            return                      # duplicate (the ack was lost): already stored
+        mi.seen.add(n)
+        t_ms = int(m.get("t_ms", 0))
+        mi.ev_out.append({"t_ms": t_ms, "type": ev, "actor": m.get("actor"), "data": m.get("data", {})})
+        mi.ev_csv.writerow([round(time.time(), 3), t_ms, ev, m.get("actor"), mi.hr])
+        if ev != "shot":
+            log(f"event  {ev:<12} {m.get('actor') or '':<12} t={t_ms / 1000:7.1f}s  HR {mi.hr or '-'}")
+        if ev == "mission_end":
+            asyncio.create_task(self.finish(mi, m))
 
+    # ------------------------------------------------------------ mission lifecycle
+    def start_mission(self, m):
+        mi = Mission(m.get("mid"), time.time() - int(m.get("t_ms", 0)) / 1000)
+        self.mission = mi
+        log("=" * 60)
+        log(f"MISSION START  (trigger pressed)  headset {self.quest}  {'[simulated HR]' if self.a.simulate else 'connecting WHOOP'}")
+        mi.task = asyncio.create_task(self.sim_loop(mi) if self.a.simulate else self.ble_loop(mi))
+        return mi
+
+    async def finish(self, mi, m):
+        last = int(m.get("n", 0))
+        for _ in range(40):             # the Quest resends anything unacked every 0.6 s; give it up to 4 s
+            if all(i in mi.seen for i in range(1, last)):
+                break
+            await asyncio.sleep(0.1)
+        else:
+            log(f"mission_end: events still missing {sorted(set(range(1, last)) - mi.seen)} - closing anyway")
+        d = m.get("data", {})
+        await self.end_mission(mi, d.get("outcome", "failed"), d.get("reason", ""), int(m.get("t_ms", 0)))
+
+    async def end_mission(self, mi, outcome, reason, t_ms=None):
+        if mi.ended:
+            return
+        mi.ended = mi.running = False
+        if self.mission is mi:
+            self.mission = None
+        if mi.task:
+            try:
+                await asyncio.wait_for(mi.task, 8)      # leaving the BLE context disconnects the WHOOP
+            except Exception:
+                mi.task.cancel()
+        await self.flush(mi)
+        d = self.debrief
+        if d and d.ok and mi.session:
+            try:
+                await asyncio.to_thread(d.rpc, "end_session", p_session=mi.session, p_outcome=outcome, p_reason=reason,
+                                        p_duration_ms=t_ms or int((time.time() - mi.t0) * 1000))
+            except Exception as e:
+                log(f"end_session failed: {e}")
+        mi.hr_f.close(); mi.ev_f.close()
+        log(f"MISSION END  {outcome}: {reason or '-'}  | heart-rate rows {mi.n_hr}, events {mi.n_ev}, "
+            f"bad R-R values dropped {mi.bad_rr}  | WHOOP disconnected, relay idle")
+        log("=" * 60)
+
+    async def watchdog(self):
+        while True:
+            await asyncio.sleep(1)
+            mi = self.mission
+            if mi and time.time() - mi.last_rx > self.a.watchdog:
+                log(f"headset silent for {self.a.watchdog:.0f}s - ending the mission")
+                await self.end_mission(mi, "failed", "aborted: headset link lost")
+
+    # ------------------------------------------------------------ heart rate
+    def level(self, mi, hr):
+        return 0 if mi.baseline is None else sum(hr - mi.baseline >= x for x in LEVELS)
+
+    def ingest(self, mi, hr, raw_rr):
+        if hr <= 0 or mi.ended:
+            return
+        rr = [v for v in raw_rr if 250 <= v <= 2500]    # a garbled R-R field must never poison an upload batch
+        mi.bad_rr += len(raw_rr) - len(rr)
+        now = time.time(); mi.hr = hr
+        mi.hr_out.append({"t_ms": round((now - mi.t0) * 1000), "bpm": hr, "rr_ms": rr or None})
+        if mi.baseline is None:
+            mi.window.append(hr)
+            if now - mi.t0 >= BASELINE_S:
+                mi.baseline = round(statistics.median(mi.window))
+                log(f"resting baseline {mi.baseline} bpm")
+        lvl = self.level(mi, hr)
+        msg = json.dumps({"t": round(now, 3), "hr": hr, "level": lvl, "baseline": mi.baseline}).encode()
+        for addr in ([(self.quest, HR_PORT)] if self.quest else [("255.255.255.255", HR_PORT), ("127.0.0.1", HR_PORT)]):
+            try:
+                self.tx.sendto(msg, addr)
+            except OSError as e:
+                log(f"send to headset failed {addr}: {e}")
+        mi.hr_csv.writerow([round(now, 3), round((now - mi.t0) * 1000), hr, lvl, mi.baseline])
+        log(f"HR {hr:3d}  level {lvl}  baseline {mi.baseline or '...'}")
+
+    async def sim_loop(self, mi):
+        t = 0
+        while mi.running:
+            hr = int(72 + 16 * max(0, math.sin(t / 20)) ** 2 + random.gauss(0, 1))
+            rr = [round(60000 / hr) + random.randint(-20, 20)] + ([41000] if t % 7 == 3 else [])   # garbage on purpose
+            self.ingest(mi, hr, rr)
+            t += 1
+            await asyncio.sleep(1)
+
+    async def ble_loop(self, mi):
+        from bleak import BleakClient, BleakScanner     # imported here: the simulator needs no Bluetooth permission
+        cached_failed = False
+        while mi.running:
+            cached = open(ADDR_CACHE).read().strip() if os.path.exists(ADDR_CACHE) else None
+            dev = cached if cached and not cached_failed else None
+            if dev is None:
+                log("scanning for the WHOOP...")
+                found = await BleakScanner.find_device_by_filter(
+                    lambda d, ad: HR_SERVICE in [u.lower() for u in ad.service_uuids] or "whoop" in (d.name or "").lower(), timeout=10)
+                if found:
+                    dev = found.address
+                    open(ADDR_CACHE, "w").write(dev)
+                elif cached:
+                    dev = cached        # a band still held by a dead connection does not advertise: dial it directly
+                else:
+                    log("WHOOP not found - is Broadcast Heart Rate ON in the WHOOP app?")
+                    continue
+            try:
+                log(f"connecting to the WHOOP ({dev})")
+                async with BleakClient(dev, timeout=12) as client:
+                    await client.start_notify(HR_MEASUREMENT, lambda _, data: self.ingest(mi, *parse_hr(data)))
+                    log("WHOOP connected")
+                    cached_failed = False
+                    while mi.running and client.is_connected:
+                        await asyncio.sleep(0.3)
+                log("WHOOP disconnected")
+            except Exception as e:
+                log(f"WHOOP link: {e}")
+                cached_failed = dev == cached
+                await asyncio.sleep(1.5)
+
+    # ------------------------------------------------------------ uploads
     async def uploader(self):
         while True:
             await asyncio.sleep(1)
-            await self.flush()
+            if self.mission:
+                await self.flush(self.mission)
 
-    async def run(self):
-        asyncio.create_task(self.listen_quest())
-        asyncio.create_task(self.uploader())
-        while True:
-            print("scanning for WHOOP heart-rate broadcast...")
-            dev = await BleakScanner.find_device_by_filter(
-                lambda d, ad: HR_SERVICE in [u.lower() for u in ad.service_uuids] or "whoop" in (d.name or "").lower(),
-                timeout=15)
-            last = os.path.join(OUT, ".whoop_address")
-            if not dev and os.path.exists(last):
-                # a band that is still connected (e.g. to a relay that just quit) stops advertising: dial it directly
-                dev = open(last).read().strip()
-                print(f"no broadcast seen - trying the last WHOOP directly ({dev})")
-            elif not dev:
-                print("not found - is Broadcast Heart Rate ON in the WHOOP app?")
-                continue
-            else:
-                open(last, "w").write(dev.address)
-            print(f"connecting to {getattr(dev, 'name', 'WHOOP')} {getattr(dev, 'address', dev)}")
+    async def flush(self, mi):
+        async with mi.lock:
+            ev, hr = mi.ev_out, mi.hr_out
+            mi.ev_out, mi.hr_out = [], []
+            d = self.debrief
+            if d is None or not d.ok:           # dry run / no credentials: count only
+                mi.n_ev += len(ev); mi.n_hr += len(hr)
+                return
+            if mi.session is None:
+                try:
+                    trainee = await asyncio.to_thread(d.rpc, "upsert_trainee", p_name=d.name)
+                    mi.session = await asyncio.to_thread(d.rpc, "start_session", p_trainee=trainee)
+                    log(f"debrief session opened: {mi.session}  ({d.name})")
+                except Exception as e:
+                    log(f"debrief session not opened yet ({e}); will retry")
+                    mi.ev_out, mi.hr_out = ev + mi.ev_out, hr + mi.hr_out
+                    return
+            if ev and not await self.push(mi, "push_events", "p_events", ev):
+                mi.ev_out = ev + mi.ev_out
+            if hr and not await self.push(mi, "push_hr", "p_samples", hr):
+                mi.hr_out = hr + mi.hr_out
+
+    async def push(self, mi, fn, key, rows):
+        """True = handled (stored, or refused for good and dropped). False = no network, keep the rows and retry."""
+        d = self.debrief
+        for attempt in (0, 1):
             try:
-                async with BleakClient(dev) as client:
-                    self.connected_at = self.connected_at or time.time()
-                    await client.start_notify(HR_MEASUREMENT, self.on_hr)
-                    while client.is_connected:
-                        await asyncio.sleep(1)
+                await asyncio.to_thread(d.rpc, fn, p_session=mi.session, **{key: rows})
+                if fn == "push_events": mi.n_ev += len(rows)
+                else: mi.n_hr += len(rows)
+                return True
+            except RpcError as e:
+                if fn == "push_hr" and attempt == 0 and any(r.get("rr_ms") for r in rows):
+                    log(f"{fn} refused ({e}); retrying without R-R intervals")
+                    rows = [{**r, "rr_ms": None} for r in rows]
+                    continue
+                log(f"{fn} refused for good, dropping {len(rows)} rows: {e}")
+                return True
             except Exception as e:
-                print("WHOOP link dropped:", e)
-            await asyncio.sleep(2)
+                log(f"{fn}: no network ({e}); will retry")
+                return False
+        return True
+
+    # ------------------------------------------------------------ main
+    async def run(self):
+        stop = asyncio.Event()
+        asyncio.get_running_loop().add_signal_handler(signal.SIGINT, stop.set)
+        tasks = [asyncio.create_task(c) for c in (self.listen(), self.uploader(), self.watchdog())]
+        log("Stealth Mode relay ready. Idle until the Engineer presses the RIGHT TRIGGER in the headset. (Ctrl-C to quit)")
+        await stop.wait()
+        if self.mission:
+            await self.end_mission(self.mission, "failed", "aborted: relay stopped")
+        for t in tasks:
+            t.cancel()
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--quest", help="headset IP (otherwise learned from its hello)")
+    ap.add_argument("--quest", help="headset IP (otherwise learned from its packets)")
     ap.add_argument("--name", default="Pulin Chaudhari", help="trainee name shown in the debrief app")
+    ap.add_argument("--simulate", action="store_true", help="fake heart rate instead of the WHOOP (tests)")
+    ap.add_argument("--dry-run", action="store_true", help="no uploads to the debrief app (tests)")
+    ap.add_argument("--watchdog", type=float, default=30, help="seconds of headset silence that end a mission")
     a = ap.parse_args()
-    asyncio.run(Relay(a.quest, a.name).run())
+    asyncio.run(Relay(a).run())
