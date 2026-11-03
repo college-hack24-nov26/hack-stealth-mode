@@ -359,6 +359,9 @@ namespace StealthMode
                 rifle = null;
             }
             foreach (var hb in GetComponentsInChildren<Hitbox>()) hb.enabled = false;
+            // the body leaves the root behind: bounds and LOD must follow the bones or he is culled where he lies
+            foreach (var smr in GetComponentsInChildren<SkinnedMeshRenderer>()) smr.updateWhenOffscreen = true;
+            var lod = GetComponentInChildren<LODGroup>(); if (lod) lod.ForceLOD(0);
         }
     }
 }

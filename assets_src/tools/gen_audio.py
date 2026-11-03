@@ -20,15 +20,16 @@ CAST = {
 }
 LINES = [
     ("r01_captain", "captain", "Alpha team, this is Alpha Lead. Doc and I are in position at the rear. All call signs, hold fire."),
-    ("r02_captain", "captain", "Engineer, Comms. Your targets: watchtower two, and the door guard on the right. Wait for Sniper One."),
+    ("r02_captain", "captain", "Engineer, your targets. One: the guard up on the watchtower, straight ahead. Two: the guard at the warehouse door. Lean out past the left edge of your container to shoot. Wait for Sniper One."),
     ("r03_sniper1", "sniper1", "Sniper One. Tango, rear left, near the back door. I have the shot."),
     ("r04_captain_mark", "captain", "Sniper One, on my mark. Three. Two. One. Mark."),
     ("r05_sniper1_down", "sniper1", "Sniper One. Tango down."),
-    ("r06_captain_engage", "captain", "Engineer, engage! Engage!"),
+    ("r06_captain_engage", "captain", "Engineer, engage! Lean out left and fire!"),
     ("r07_sniper2_runner", "sniper2", "Sniper Two! Runner, front door, left side. He's inside! He's inside!"),
     ("r08_comms_tower", "comms", "Comms. Left tower is down."),
     ("r09_sniper2_down", "sniper2", "Sniper Two. Tango down."),
-    ("r10_captain_hold", "captain", "They know we're here. Engineer, Comms, hold that cover. Doc, with me. Moving to the back door."),
+    ("r10_captain_hold", "captain", "They know we're here. Engineer, get back behind your container and hold. Doc, with me. Moving to the back door."),
+    ("r10b_comms_stay", "comms", "Engineer, six coming out! Stay behind the steel. Lean out only to shoot, then get back in."),
     # beat 2
     ("r11_comms_backdoor", "comms", "Alpha Lead, Comms. All six tangos are out front, on us. Back door is clear. Go now. Take the device."),
     ("r12_captain_copy", "captain", "Copy, Comms. Doc, on me. Moving."),
@@ -38,7 +39,7 @@ LINES = [
     ("r15_sniper1_rain", "sniper1", "Sniper One. Heavy rain, coming in fast. I've lost my sight picture. I can't see a thing."),
     ("r16_sniper2_blind", "sniper2", "Sniper Two. Same here. Can't see past the fence. We're blind. Engineer, Comms, you are on your own up front."),
     # beat 4
-    ("r17_comms_corner", "comms", "Engineer, Comms. Snipers are out. It's on us now. I'm low, you go high."),
+    ("r17_comms_corner", "comms", "Engineer, the snipers are blind. It's just us now. Lean out left and fire over my head."),
     ("r18_comms_yours_generator", "comms", "Engineer, yours is behind the generator. I'll take the left."),
     ("r18_comms_yours_barrels", "comms", "Engineer, yours is behind the barrels. I'll take the left."),
     ("r18_comms_yours_door", "comms", "Engineer, yours is in the doorway. I'll take the left."),
@@ -49,7 +50,12 @@ LINES = [
     ("r19_comms_down3", "comms", "Comms. Tango down. Three left."),
     ("r20_comms_second", "comms", "Comms. Got him too. Three left. Engineer, stay on your rifle!"),
     # beat 5
-    ("r21_comms_moving", "comms", "Engineer, Comms. I'm moving up. Cover me!"),
+    ("r21_comms_moving", "comms", "Engineer, I'm moving up! Cover me! Shoot at them while I run!"),
+    # beat 6: Comms is down in the open, his radio is dead
+    ("r22_captain_report", "captain", "Engineer, Alpha Lead! We heard a blast. What happened? Report!"),
+    ("r23_captain_drag", "captain", "Copy, Engineer! Get Comms out of the open. Grab his vest and drag him back behind your container. Move!"),
+    ("r24_captain_open", "captain", "Engineer, you're in the open! Get him into cover, now!"),
+    ("r25_captain_down", "captain", "Engineer's down! Engineer's down!"),
 ]
 
 # Comms' own voice in the air only (no radio): short shouts, and his voice after the blast has killed his radio
@@ -59,6 +65,7 @@ AIR = [
     ("v_comms_help_1", "Engineer! Help!", 190, 1.12),
     ("v_comms_help_2", "Engineer, help!", 200, 1.14),
     ("v_comms_help_3", "Engineer! Help me!", 195, 1.12),
+    ("v_comms_thanks", "You got me. Thanks, brother.", 175, 1.08),
 ]
 
 
@@ -349,6 +356,12 @@ def main():
         for i in range(1, 4):
             write(os.path.join(OUT, f"thunder_{i}.wav"), thunder(30 + i))
         print("RAIN_DONE"); return
+    if "--air" in sys.argv:     # only (re)make the named air lines, e.g. --air v_comms_thanks
+        want = sys.argv[sys.argv.index("--air") + 1].split(",")
+        for name, text, rate, pitch in AIR:
+            if name in want:
+                write(os.path.join(OUT, "Voice", name + ".wav"), air_line(name, text, rate, pitch)); print("air", name)
+        return
     if "--lines" in sys.argv:   # only (re)make the named radio lines, e.g. --lines r11_comms_backdoor,r12_captain_copy
         want = sys.argv[sys.argv.index("--lines") + 1].split(",")
         for name, who, text in LINES:

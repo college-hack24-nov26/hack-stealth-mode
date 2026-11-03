@@ -29,6 +29,11 @@ namespace StealthMode
         public static float Beat5Time = -1, TripTime = -1, LandingDistance = -1;
         public static int CoverShots, CoverHits;
         public static bool VoiceDuringAdvance;
+        // beat 6: man down in the open (all times measured from the blast)
+        public static float Beat6Time = -1, ReportLatency = -1, FirstGrabTime = -1, SafeTime = -1, OpenSeconds, Beat6ExposedSeconds, DragMetres;
+        public static int OpenShots, Grabs, ShotsAfterCover = -1;
+        public static bool ReportPrompted;
+        public static string FailReason;
 
         public static void Reset()
         {
@@ -38,6 +43,8 @@ namespace StealthMode
             Beat4Time = CommsCornerTime = DesignateTime = EngineerKillTime = KillCallLatency = -1;
             Designated = EngineerKillTarget = null; CommsSecond = MicAvailable = false;
             Beat5Time = TripTime = LandingDistance = -1; CoverShots = CoverHits = 0; VoiceDuringAdvance = false;
+            Beat6Time = ReportLatency = FirstGrabTime = SafeTime = -1; OpenSeconds = Beat6ExposedSeconds = DragMetres = 0;
+            OpenShots = Grabs = 0; ShotsAfterCover = -1; ReportPrompted = false; FailReason = null;
         }
 
         public static void RecordShot(string target, string part, float distance)
@@ -82,7 +89,11 @@ namespace StealthMode
                       $"\"engineer_kill\": {S(EngineerKillTarget)}, \"engineer_kill_after_call_s\": {F(EngineerKillTime < 0 || DesignateTime < 0 ? -1 : EngineerKillTime - DesignateTime)}, " +
                       $"\"kill_called_after_s\": {F(KillCallLatency)}, \"mic\": {B(MicAvailable)}, \"comms_took_second\": {B(CommsSecond)}}},\n");
             sb.Append($"  \"beat5\": {{\"t\": {F(Rel(Beat5Time))}, \"cover_shots\": {CoverShots}, \"cover_hits\": {CoverHits}, \"spoke_during_advance\": {B(VoiceDuringAdvance)}, " +
-                      $"\"trip_s\": {F(Rel(TripTime))}, \"comms_landed_m_from_engineer\": {F(LandingDistance)}}},\n  \"kills\": {{");
+                      $"\"trip_s\": {F(Rel(TripTime))}, \"comms_landed_m_from_engineer\": {F(LandingDistance)}}},\n");
+            float FromBlast(float t) => t < 0 || Beat6Time < 0 ? -1 : t - Beat6Time;
+            sb.Append($"  \"beat6\": {{\"report_after_blast_s\": {F(ReportLatency)}, \"report_prompted\": {B(ReportPrompted)}, \"first_grab_s\": {F(FromBlast(FirstGrabTime))}, " +
+                      $"\"comms_in_cover_s\": {F(FromBlast(SafeTime))}, \"grabs\": {Grabs}, \"drag_m\": {F(DragMetres)}, \"open_without_comms_s\": {F(OpenSeconds)}, " +
+                      $"\"exposed_s\": {F(Beat6ExposedSeconds)}, \"shots_from_open\": {OpenShots}, \"shots_after_cover\": {(ShotsAfterCover < 0 ? "null" : ShotsAfterCover.ToString())}, \"failed\": {S(FailReason)}}},\n  \"kills\": {{");
             int i = 0;
             foreach (var kv in KillTimes)
                 sb.Append($"{(i++ > 0 ? ", " : "")}\"{kv.Key}\": {{\"t\": {F(Rel(kv.Value))}, \"by\": \"{KilledBy[kv.Key]}\"}}");

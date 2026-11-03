@@ -70,7 +70,7 @@ namespace StealthMode
         }
 
         // black over the whole view, a hand's width in front of the eyes, drawn after everything else
-        static MeshRenderer Veil(Camera cam)
+        internal static MeshRenderer Veil(Camera cam)
         {
             var q = GameObject.CreatePrimitive(PrimitiveType.Quad); Object.Destroy(q.GetComponent<Collider>());
             q.name = "Briefing fade"; q.layer = ScreenLayer;
@@ -81,7 +81,7 @@ namespace StealthMode
             return r;
         }
 
-        static IEnumerator Fade(MeshRenderer veil, float from, float to, float seconds)
+        internal static IEnumerator Fade(MeshRenderer veil, float from, float to, float seconds)
         {
             for (float t = 0; t < seconds; t += Time.unscaledDeltaTime)
             {
