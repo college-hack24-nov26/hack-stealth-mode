@@ -38,7 +38,7 @@ LINES = [
     ("r15_sniper1_rain", "sniper1", "Sniper One. Heavy rain, coming in fast. I've lost my sight picture. I can't see a thing."),
     ("r16_sniper2_blind", "sniper2", "Sniper Two. Same here. Can't see past the fence. We're blind. Engineer, Comms, you are on your own up front."),
     # beat 4
-    ("r17_comms_corner", "comms", "Engineer, Comms. Snipers are out. I'm taking the corner, low. You go high."),
+    ("r17_comms_corner", "comms", "Engineer, Comms. Snipers are out. It's on us now. I'm low, you go high."),
     ("r18_comms_yours_generator", "comms", "Engineer, yours is behind the generator. I'll take the left."),
     ("r18_comms_yours_barrels", "comms", "Engineer, yours is behind the barrels. I'll take the left."),
     ("r18_comms_yours_door", "comms", "Engineer, yours is in the doorway. I'll take the left."),
@@ -56,9 +56,9 @@ LINES = [
 AIR = [
     ("v_comms_goodhit", "Good hit.", 182, 1.08),
     ("v_comms_moving", "Moving!", 200, 1.10),
-    ("v_comms_hit_1", "I'm hit! I'm hit!", 215, 1.16),
-    ("v_comms_hit_2", "My leg! Ah, my leg!", 205, 1.18),
-    ("v_comms_hit_3", "Engineer! Engineer, help me!", 210, 1.16),
+    ("v_comms_help_1", "Engineer! Help!", 190, 1.12),
+    ("v_comms_help_2", "Engineer, help!", 200, 1.14),
+    ("v_comms_help_3", "Engineer! Help me!", 195, 1.12),
 ]
 
 
@@ -267,70 +267,21 @@ def alarm(sec=8):
     return norm(reverb(x, 1.2, 0.5), 0.7)[:n]
 
 
-# ------------------------------------------------------------------ beat 4-5: blast, tinnitus, dead radio, a wounded man
-def resonate(x, f, bw):
-    """Two-pole resonator (one vocal-tract formant)."""
-    from scipy.signal import lfilter
-    r = np.exp(-np.pi * bw / SR); th = 2 * np.pi * f / SR
-    return lfilter([1 - r], [1, -2 * r * np.cos(th), r * r], x).astype(np.float32)
-
-
-def voiced(f0, formants, breath=0.12, rough=0.25, seed=0):
-    """Glottal pulse train on an f0 contour (with jitter, shimmer and a ragged edge), shaped by the vocal tract."""
-    r = np.random.default_rng(seed)
-    n = len(f0)
-    jit = np.interp(np.arange(n), np.linspace(0, n, max(4, n // 900)), r.normal(0, 1, max(4, n // 900)))
-    f = f0 * (1 + 0.025 * jit)
-    ph = np.cumsum(2 * np.pi * f / SR)
-    src = (np.mod(ph, 2 * np.pi) / np.pi - 1).astype(np.float32)          # sawtooth: rich in harmonics
-    src = lp(src, 2800)
-    src *= 1 + rough * np.sin(ph * 0.5 + r.uniform(0, 6))                  # sub-harmonic rasp: a strained throat
-    src += r.normal(0, breath, n).astype(np.float32)                        # aspiration
-    out = sum(g * resonate(src, fc, bw) for fc, bw, g in formants)
-    return np.tanh(norm(out) * 1.8).astype(np.float32)
-
-
-def scream(seed, sec):
-    """Close, raw pain scream (outdoors, a few metres away): f0 jumps up, wavers, breaks and falls; open 'aah'."""
-    r = np.random.default_rng(seed)
-    n = int(SR * sec); t = np.arange(n) / SR
-    peak = r.uniform(430, 560)
-    f0 = 260 + (peak - 260) * np.minimum(1, t / 0.12) * np.exp(-np.maximum(0, t - sec * 0.55) / (sec * 0.35))
-    f0 += 18 * np.sin(2 * np.pi * r.uniform(5, 7) * t)
-    x = voiced(f0, [(900, 110, 1.0), (1450, 140, 0.7), (2700, 200, 0.45), (3600, 260, 0.25)], 0.18, 0.35, seed)
-    e = np.minimum(1, t / 0.05) * np.minimum(1, (sec - t) / 0.35) * (0.8 + 0.2 * np.sin(2 * np.pi * 1.3 * t + seed))
-    gasp = fft_band(r.normal(0, 1, int(SR * 0.45)).astype(np.float32), 600, 5000) * env(int(SR * 0.45), 0.12, 0.15) * 0.25
-    return norm(reverb(np.concatenate([x * e, gasp.astype(np.float32)]), 0.5, 0.18), 0.9)
-
-
-def groan(seed, sec):
-    """Low, breathy groan through clenched teeth: 'mmh-aah', falling."""
-    r = np.random.default_rng(seed)
-    n = int(SR * sec); t = np.arange(n) / SR
-    f0 = r.uniform(150, 175) * (1 - 0.18 * t / sec) + 6 * np.sin(2 * np.pi * 4.5 * t)
-    k = np.minimum(1, t / (sec * 0.5))       # closed 'o' opening to 'a'
-    lo = voiced(f0, [(500, 90, 1.0), (900, 120, 0.6), (2500, 220, 0.25)], 0.25, 0.4, seed)
-    hi = voiced(f0, [(780, 110, 1.0), (1250, 140, 0.6), (2600, 220, 0.3)], 0.25, 0.4, seed + 1)
-    e = np.minimum(1, t / 0.15) * np.minimum(1, (sec - t) / 0.4)
-    return norm(reverb((lo * (1 - k) + hi * k) * e, 0.4, 0.15), 0.75)
-
-
+# ------------------------------------------------------------------ beat 4-5: blast, tinnitus, dead radio, Comms' shouts
 def air_line(name, text, rate, pitch):
-    """Comms shouting in the open air (no radio): TTS voice raised, strained and shaking, breath underneath."""
+    """Comms' own voice in the open air (no radio). The calls for help are shouted: driven hard, words clear."""
     with tempfile.TemporaryDirectory() as td:
         aiff = os.path.join(td, "v.aiff"); wav = os.path.join(td, "v.wav")
         subprocess.run(["say", "-v", "Rishi", "-r", str(rate), "-o", aiff, text], check=True)
         subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", aiff, "-af",
                         f"asetrate=22050*{pitch},aresample={SR}", "-ac", "1", wav], check=True)
         x, _ = read(wav)
-    x = norm(x, 0.8); n = len(x); t = np.arange(n) / SR
-    hurt = name.startswith("v_comms_hit")
-    if hurt:
-        x = x * (1 + 0.3 * np.sin(2 * np.pi * 7.5 * t))                     # voice shaking with pain
-        x = np.tanh(x * 2.6) / np.tanh(2.6)                                   # shouting through it
-        x += fft_band(rng.normal(0, 1, n).astype(np.float32), 700, 6000) * 0.05 * np.abs(x).max()
-        x = np.concatenate([x, groan(len(name) * 7, 1.3) * 0.7])
-    return norm(reverb(x.astype(np.float32), 0.45, 0.15), 0.9 if hurt else 0.8)
+    x = norm(x, 0.8)
+    shout = name.startswith("v_comms_help")
+    if shout:
+        x = fft_band(x, 180, 7000)
+        x = np.tanh(x * 2.2) / np.tanh(2.2)                                   # full voice, pushed
+    return norm(reverb(x.astype(np.float32), 0.45, 0.15), 0.95 if shout else 0.8)
 
 
 def blast_close():
@@ -382,9 +333,6 @@ def beat45():
             radio_line(name, who, text); print("radio", name)
     for name, text, rate, pitch in AIR:
         write(os.path.join(OUT, "Voice", name + ".wav"), air_line(name, text, rate, pitch)); print("air", name)
-    for i in range(1, 4):
-        write(os.path.join(OUT, "Voice", f"v_comms_scream_{i}.wav"), scream(50 + i, [1.6, 2.1, 1.3][i - 1]))
-        write(os.path.join(OUT, "Voice", f"v_comms_groan_{i}.wav"), groan(60 + i, [1.6, 2.2, 1.4][i - 1]))
     write(os.path.join(OUT, "blast_close.wav"), blast_close())
     write(os.path.join(OUT, "tinnitus.wav"), tinnitus())
     write(os.path.join(OUT, "radio_dead.wav"), radio_dead())

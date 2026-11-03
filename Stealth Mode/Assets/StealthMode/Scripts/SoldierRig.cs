@@ -154,11 +154,18 @@ namespace StealthMode
                     break;
                 }
                 case Stance.Run:
-                    runPhase += Time.deltaTime * runSpeed * 1.35f;
+                {
+                    // cadence rises a little with speed (~2.8 steps/s jogging, ~3 sprinting) and the foot travel is matched
+                    // to the ground speed, so the planted foot stays put instead of skating; body pitched into the run,
+                    // knees bent, hips dipping at each footfall, head held up
+                    float w = 2f * Mathf.PI * (1.25f + 0.045f * runSpeed);
+                    runPhase += Time.deltaTime * w;
+                    float stride = Mathf.Clamp(runSpeed / w, 0.22f, 0.6f), lift = 0.1f + stride * 0.35f;
                     float s = Mathf.Sin(runPhase), c = Mathf.Cos(runPhase);
-                    hipY = hipH - 0.07f + 0.04f * Mathf.Abs(s); pelvis = 16; bend = 8;
-                    lf = new Vector3(-0.1f, ankle + 0.28f * Mathf.Max(0, c), 0.42f * s); rf = new Vector3(0.1f, ankle + 0.28f * Mathf.Max(0, -c), -0.42f * s);
+                    hipY = hipH - 0.1f + 0.045f * Mathf.Abs(s); pelvis = 18; bend = 12; nod = -16;
+                    lf = new Vector3(-0.1f, ankle + lift * Mathf.Max(0, c), stride * s); rf = new Vector3(0.1f, ankle + lift * Mathf.Max(0, -c), -stride * s);
                     break;
+                }
             }
 
             var T = transform;
@@ -228,6 +235,8 @@ namespace StealthMode
                 var rot = Quaternion.LookRotation(aimDir, transform.up);
                 rifle.rotation = rot;
                 rifle.position = (chest ? chest.position : transform.position + Vector3.up * 1.3f) + transform.forward * 0.28f + transform.right * 0.12f - transform.up * 0.12f;
+                // the rifle rides the stride: a small bounce each footfall and a sway side to side
+                if (stance == Stance.Run) rifle.position += transform.up * 0.018f * Mathf.Sin(runPhase * 2f) + transform.right * 0.012f * Mathf.Sin(runPhase);
             }
 
             // arms onto the rifle

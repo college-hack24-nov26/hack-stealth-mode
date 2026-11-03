@@ -65,7 +65,7 @@ namespace StealthMode
             ["r14_sniper2_down2"] = "Sniper Two. Tango down. Five left out front.",
             ["r15_sniper1_rain"] = "Sniper One. Heavy rain, coming in fast. I've lost my sight picture. I can't see a thing.",
             ["r16_sniper2_blind"] = "Sniper Two. Same here. Can't see past the fence. We're blind. Engineer, Comms, you are on your own up front.",
-            ["r17_comms_corner"] = "Engineer, Comms. Snipers are out. I'm taking the corner, low. You go high.",
+            ["r17_comms_corner"] = "Engineer, Comms. Snipers are out. It's on us now. I'm low, you go high.",
             ["r18_comms_yours_generator"] = "Engineer, yours is behind the generator. I'll take the left.",
             ["r18_comms_yours_barrels"] = "Engineer, yours is behind the barrels. I'll take the left.",
             ["r18_comms_yours_door"] = "Engineer, yours is in the doorway. I'll take the left.",
@@ -249,6 +249,8 @@ namespace StealthMode
         IEnumerator BeatTwo(System.Collections.Generic.List<EnemyAI> squad)
         {
             Phase = "beat2_flank";
+            // Shipment-1 is between Comms and the yard where he kneels: he runs to its west corner and fights from there
+            if (comms && !comms.Dead) yield return CommsToCorner();
             StartSuppress(squad);
             yield return Say("r11_comms_backdoor", comms ? comms.Head : null);
             yield return new WaitForSeconds(0.5f);
@@ -329,14 +331,8 @@ namespace StealthMode
             StopSuppress();
             if (comms && !comms.Dead)
             {
+                if (Vector3.Distance(comms.transform.position, CornerSpot) > 0.6f) yield return CommsToCorner();
                 yield return Say("r17_comms_corner", comms.Head);
-                comms.stance = SoldierRig.Stance.Crouch;
-                yield return new WaitForSeconds(0.4f);
-                yield return Walk(comms, CornerRoute, 1.3f);           // behind the Engineer, bent low, rifle at low ready
-                comms.stance = SoldierRig.Stance.Kneel;
-                comms.aimPoint = CornerSpot + AdvanceDir * 20f + Vector3.up * 1.2f;
-                OpeningMetrics.CommsCornerTime = Time.time;
-                yield return new WaitForSeconds(1.2f);
             }
             Phase = "beat4_engage";
             Debug.Log("[StealthMode] BEAT 4: " + Alive(squad) + " left, Comms at the corner");
@@ -350,7 +346,7 @@ namespace StealthMode
                 float t0 = Time.time;
                 StartSuppress(squad);                                   // from the corner his rounds land among them
                 StartCoroutine(EngineerKillWatch(squad, OpeningMetrics.Beat4Time));
-                yield return new WaitForSeconds(Random.Range(3.5f, 6f));
+                yield return new WaitForSeconds(Random.Range(0.5f, 1.0f));
                 if (Alive(squad) > 3 && mine4 && !mine4.Dead) yield return CommsTakes(mine4, squad);
                 while (Time.time - t0 < engineerWindow && engineerKill == null && Alive(squad) > 3) yield return null;
                 OpeningMetrics.CommsSecond = engineerKill == null && Alive(squad) > 3;
@@ -366,6 +362,19 @@ namespace StealthMode
             while (commsBusy || commsTalking || (engineerKill && Time.time < engineerKill.DeathTime + 4.5f) || (commsVoice && commsVoice.isPlaying)) yield return null;
             OpeningMetrics.Save();
             yield return BeatFive(squad);
+        }
+
+        // "Moving!" and he goes: up off the knee, a hard run behind the Engineer to the west corner, down on the knee there,
+        // rifle on the yard
+        IEnumerator CommsToCorner()
+        {
+            StartCoroutine(Shout("v_comms_moving"));
+            yield return new WaitForSeconds(0.3f);
+            yield return RunTo(comms, CornerRoute, 3.4f);
+            comms.stance = SoldierRig.Stance.Kneel;
+            comms.aimPoint = CornerSpot + AdvanceDir * 20f + Vector3.up * 1.2f;
+            OpeningMetrics.CommsCornerTime = Time.time;
+            yield return new WaitForSeconds(0.3f);
         }
 
         static int Alive(List<EnemyAI> squad) { int n = 0; foreach (var e in squad) if (!e.Dead) n++; return n; }
@@ -433,20 +442,14 @@ namespace StealthMode
             if (best < 300f) CombatFx.I.Impact(end, -dir, false);
         }
 
-        // Comms kills a man the way it really goes: a pair that misses as he ducks, a wait for the head to come back up,
-        // then a second pair; then he says so on the radio (and in the air, a few metres from the Engineer)
+        // Comms kills a man: sights on, a controlled pair, done; then he says so on the radio (and in the air, a few
+        // metres from the Engineer)
         IEnumerator CommsTakes(EnemyAI e, List<EnemyAI> squad, string line = null)
         {
             if (!comms || comms.Dead || e == null || e.Dead) yield break;
             commsBusy = true;
             comms.aimPoint = e.rig.Chest.position;
-            yield return new WaitForSeconds(Random.Range(0.8f, 1.3f));
-            for (int i = 0; i < 2 && !e.Dead; i++)
-            {
-                CommsRound(e.rig.Chest.position + Random.insideUnitSphere * 0.35f + Vector3.up * 0.3f);
-                yield return new WaitForSeconds(Random.Range(0.12f, 0.18f));
-            }
-            yield return new WaitForSeconds(Random.Range(1.0f, 1.8f));
+            yield return new WaitForSeconds(Random.Range(0.35f, 0.55f));
             bool got = false;
             if (!e.Dead)
             {
@@ -524,12 +527,11 @@ namespace StealthMode
             yield return Say("r21_comms_moving", comms.Head);
             StopSuppress();
             int shots0 = OpeningMetrics.Shots.Count; float advance0 = Time.time;
-            comms.stance = SoldierRig.Stance.Crouch;
-            yield return new WaitForSeconds(0.35f);
             StartCoroutine(Shout("v_comms_moving"));
+            yield return new WaitForSeconds(0.3f);
             foreach (var e in squad) if (!e.Dead) e.player = comms.Head;   // he's the one in the open now: they shift onto him
             var from = comms.transform.position;
-            var walking = StartCoroutine(Walk(comms, new[] { from + AdvanceDir * AdvanceLength }, 1.5f));
+            var walking = StartCoroutine(RunTo(comms, new[] { from + AdvanceDir * AdvanceLength }, 3.6f));   // a rush, not a walk
             var prev = from;
             while (true)
             {
@@ -589,29 +591,16 @@ namespace StealthMode
             return best;
         }
 
-        // Comms on the ground: a man with a shredded leg, conscious, in the open. Screams, groans, words, never on the radio.
+        // Comms on the ground in the open, hurt, lying where the blast put him. He shouts for the Engineer, never on the radio.
         IEnumerator Wounded()
         {
-            var anim = comms.GetComponent<Animator>();
-            Rigidbody Limb(HumanBodyBones b) { var t = anim ? anim.GetBoneTransform(b) : null; return t ? t.GetComponent<Rigidbody>() : null; }
-            var limbs = new[] { Limb(HumanBodyBones.LeftLowerArm), Limb(HumanBodyBones.RightLowerArm), Limb(HumanBodyBones.LeftUpperLeg), Limb(HumanBodyBones.RightLowerLeg) };
-            (string clip, string text)[] first =
+            yield return new WaitForSeconds(1.4f);         // the first shout lands while the ears are still ringing
+            while (true)
             {
-                ("v_comms_scream", null), ("v_comms_hit_1", "I'm hit! I'm hit!"), ("v_comms_groan", null), ("v_comms_scream", null),
-                ("v_comms_hit_2", "My leg! Ah, my leg!"), ("v_comms_groan", null), ("v_comms_hit_3", "Engineer! Engineer, help me!"),
-            };
-            (string clip, string text)[] after = { ("v_comms_groan", null), ("v_comms_hit_3", "Engineer! Engineer, help me!"), ("v_comms_scream", null), ("v_comms_hit_2", "My leg! Ah, my leg!") };
-            yield return new WaitForSeconds(1.4f);         // the first scream lands while the ears are still ringing
-            for (int i = 0; ; i++)
-            {
-                var (clip, text) = i < first.Length ? first[i] : after[(i - first.Length) % after.Length];
-                var c = CombatFx.I.Clip("Voice/" + clip);
+                var c = CombatFx.I.Clip("Voice/v_comms_help");
                 if (c) { commsVoice.Stop(); commsVoice.clip = c; commsVoice.Play(); }
-                if (text != null) HeartLink.Event("comrade_shout", "communicator", $"{{\"text\":{HeartLink.Str(text)}}}");
-                // he moves with it: an arm comes up, a leg draws in
-                var rb = limbs[Random.Range(0, limbs.Length)];
-                if (rb) rb.AddForce((Vector3.up + Random.insideUnitSphere * 0.5f) * rb.mass * 1.6f, ForceMode.Impulse);
-                yield return new WaitForSeconds((c ? c.length : 1.5f) + Random.Range(1.2f, 3.2f));
+                HeartLink.Event("comrade_shout", "communicator", "{\"text\":\"Engineer, help!\"}");
+                yield return new WaitForSeconds((c ? c.length : 1.5f) + Random.Range(2.0f, 3.5f));
             }
         }
 
@@ -654,6 +643,34 @@ namespace StealthMode
             }
         }
 
+        /// <summary>
+        /// Combat run between covers: a hard first couple of steps off the knee, full pace, braking into the last metre.
+        /// The gait (cadence, stride) follows the speed he is actually moving at.
+        /// </summary>
+        IEnumerator RunTo(SoldierRig rig, Vector3[] path, float speed)
+        {
+            rig.stance = SoldierRig.Stance.Run;
+            var t = rig.transform; float t0 = Time.time;
+            for (int i = 0; i < path.Length; i++)
+            {
+                bool last = i == path.Length - 1;
+                while (true)
+                {
+                    var to = path[i] - t.position; to.y = 0;
+                    if (to.magnitude < (last ? 0.15f : 0.45f)) break;
+                    var want = Quaternion.LookRotation(to);
+                    t.rotation = Quaternion.RotateTowards(t.rotation, want, 300f * Time.deltaTime);
+                    float v = speed * Mathf.Clamp01(0.35f + (Time.time - t0) / 0.5f);
+                    if (last) v *= Mathf.Clamp(to.magnitude, 0.45f, 1f);
+                    v *= Mathf.Lerp(1f, 0.55f, Mathf.InverseLerp(30f, 100f, Quaternion.Angle(t.rotation, want)));
+                    rig.runSpeed = Mathf.Max(v, 1.5f);
+                    t.position += t.forward * v * Time.deltaTime;
+                    Ground(t, path[i].y);
+                    yield return null;
+                }
+            }
+        }
+
         static void Ground(Transform t, float hint)
         {
             var hits = Physics.RaycastAll(t.position + Vector3.up * 1.2f, Vector3.down, 3f, ~0, QueryTriggerInteraction.Ignore);
@@ -681,8 +698,10 @@ namespace StealthMode
             {
                 yield return new WaitForSeconds(Random.Range(2.5f, 4.5f));
                 if (commsTalking || commsBusy || comms.Dead || !comms.Muzzle) continue;
+                // only at a man he can actually see from where he is: no rounds into his own cover
                 EnemyAI target = null;
-                foreach (var e in squad) if (!e.Dead && !e.Running && e.rig.Chest && (target == null || Random.value < 0.4f)) target = e;
+                foreach (var e in squad)
+                    if (!e.Dead && !e.Running && e.rig.Chest && (target == null || Random.value < 0.4f) && LineClear(comms.Muzzle.position, e.rig.Chest.position)) target = e;
                 if (target == null) continue;
                 comms.aimPoint = target.rig.Chest.position;
                 yield return new WaitForSeconds(0.55f);

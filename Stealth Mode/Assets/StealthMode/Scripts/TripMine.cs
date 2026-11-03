@@ -73,7 +73,9 @@ namespace StealthMode
             // the mine: a curved slab the size of a hardback book, standing on two folded wire legs, face toward the path
             var face = Quaternion.LookRotation(aim);
             var body = mine + Vector3.up * 0.2f;
-            Part(PrimitiveType.Cube, body, face, new Vector3(0.22f, 0.155f, 0.066f), steel);
+            // smeared with the same dirt it stands in: you only find it if you are looking for it
+            var dirt = Borrow("Terrain");
+            Part(PrimitiveType.Cube, body, face, new Vector3(0.22f, 0.155f, 0.066f), dirt ? dirt : steel);
             foreach (var s in new[] { -0.07f, 0.07f })
                 Part(PrimitiveType.Cylinder, mine + face * new Vector3(s, 0, 0) + Vector3.up * 0.06f, up, new Vector3(0.008f, 0.06f, 0.008f), steel);
 

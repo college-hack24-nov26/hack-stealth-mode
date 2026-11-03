@@ -22,7 +22,7 @@ namespace StealthMode
         const int Rate = 16000, Frame = 320;          // 20 ms
         const float MinLevel = 0.03f, OverFloor = 4f, Hold = 0.25f, Release = 0.6f;
         AudioClip mic; string device; int readPos;
-        float floor = 0.01f, above, below;
+        float floor = 0.05f, above, below;     // starts high and drops to the room in a second: no false start
         readonly float[] buf = new float[Frame];
 
         public static VoiceActivity Begin(System.Func<bool> deaf)
