@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stealth Mode Architecture</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: mission-dossier page — one big system map first, then plain-language sections in reading order. Each device owns one colour everywhere. */
+:root{
+  --bg:#ECEFEC; --surface:#FFFFFF; --sunk:#E2E7E3; --ink:#16201B; --muted:#56635C; --line:#C5CEC8;
+  --accent:#2F5A44;
+  --hr:#C93434; --mac:#2B63CF; --quest:#7446D0; --cloud:#B47A0C; --app:#1A8A5E;
+  --fail:#C93434; --ok:#1A8A5E;
+  --display:"Saira Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1411; --surface:#161E1A; --sunk:#1D2621; --ink:#E4EBE6; --muted:#97A59E; --line:#2C3832;
+    --accent:#7FC2A0;
+    --hr:#FF6E6E; --mac:#72A2FF; --quest:#B293FF; --cloud:#F0B544; --app:#45D198;
+    --fail:#FF6E6E; --ok:#45D198; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1411; --surface:#161E1A; --sunk:#1D2621; --ink:#E4EBE6; --muted:#97A59E; --line:#2C3832;
+  --accent:#7FC2A0;
+  --hr:#FF6E6E; --mac:#72A2FF; --quest:#B293FF; --cloud:#F0B544; --app:#45D198;
+  --fail:#FF6E6E; --ok:#45D198; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.6 var(--body)}
+.wrap{max-width:1160px;margin:0 auto;padding-block:40px 72px;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));
+  display:flex;flex-direction:column;gap:64px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.05;letter-spacing:.01em}
+h1{font-size:clamp(2.6rem,6vw,4.4rem);font-weight:800;text-transform:uppercase}
+h2{font-size:clamp(1.8rem,3.4vw,2.4rem);font-weight:700;text-transform:uppercase}
+h3{font-size:1.35rem;font-weight:700}
+p{margin:0;max-width:68ch}
+.eyebrow{font:500 .78rem/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+section{display:flex;flex-direction:column;gap:22px}
+.sec-head{display:flex;flex-direction:column;gap:10px}
+.lede{color:var(--muted);font-size:1.05rem}
+code,.mono{font-family:var(--mono);font-size:.9em}
+
+/* hero */
+.hero{display:flex;flex-direction:column;gap:18px}
+.hero .who{font:500 .85rem/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.hero p{font-size:1.15rem}
+.breath{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:8px}
+.breath div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+.breath b{font-family:var(--display);font-size:1.25rem;text-transform:uppercase;letter-spacing:.02em}
+.breath span{color:var(--muted);font-size:.92rem;line-height:1.4}
+.breath .c1 b{color:var(--hr)} .breath .c2 b{color:var(--mac)} .breath .c3 b{color:var(--quest)} .breath .c4 b{color:var(--app)}
+
+/* source tags */
+.tags{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.9rem;color:var(--muted)}
+.src{display:inline-flex;align-items:center;font:500 .68rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;
+  padding:4px 7px;border-radius:999px;border:1px solid currentColor;white-space:nowrap;vertical-align:middle}
+.s-sketch{color:var(--ink)} .s-script{color:var(--quest)} .s-repo{color:var(--mac)} .s-prop{color:var(--cloud);border-style:dashed}
+
+/* map */
+.map-box{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:12px}
+.map-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.map-scroll svg{display:block;width:100%;min-width:900px;height:auto}
+.swipe{display:none;font:500 .8rem var(--mono);color:var(--muted);padding:4px 8px 0}
+@media (max-width:900px){.swipe{display:block}}
+svg text{font-family:var(--body);fill:var(--ink)}
+.n-card{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.n-whoop .n-card{stroke:var(--hr)} .n-mac .n-card{stroke:var(--mac)} .n-quest .n-card{stroke:var(--quest)}
+.n-cloud .n-card{stroke:var(--cloud)} .n-app .n-card{stroke:var(--app)}
+.n-eye{font-family:var(--mono)!important;font-size:11px;letter-spacing:.14em}
+.n-title{font-family:var(--display)!important;font-size:27px;font-weight:700}
+.n-sub{font-size:13px;fill:var(--muted)!important}
+.n-li{font-size:13.5px}
+.n-small{font-size:11.5px;fill:var(--muted)!important}
+.inner{fill:var(--sunk);stroke:none}
+.inner-dash{fill:none;stroke:var(--cloud);stroke-dasharray:5 4;stroke-width:1.4}
+.chip{fill:none;stroke:var(--hr);stroke-width:1.3}
+.chip-dash{fill:none;stroke:var(--muted);stroke-dasharray:4 3;stroke-width:1.3}
+.wire{fill:none;stroke-width:3}
+.w-hr{stroke:var(--hr)} .w-mac{stroke:var(--mac)} .w-quest{stroke:var(--quest)} .w-cloud{stroke:var(--cloud)} .w-app{stroke:var(--app)}
+.w-dash{stroke-dasharray:7 6}
+.lab{font-family:var(--mono)!important;font-size:12px;font-weight:500}
+.lab-sub{font-size:12px;fill:var(--muted)!important}
+.mk-hr{fill:var(--hr)} .mk-mac{fill:var(--mac)} .mk-quest{fill:var(--quest)} .mk-cloud{fill:var(--cloud)} .mk-app{fill:var(--app)}
+.dot-hr{fill:var(--hr)} .dot-mac{fill:var(--mac)} .dot-quest{fill:var(--quest)} .dot-cloud{fill:var(--cloud)} .dot-app{fill:var(--app)}
+.zone{fill:none;stroke:var(--line);stroke-dasharray:3 5;stroke-width:1.2}
+@media (prefers-reduced-motion:reduce){.flow-dot{display:none}}
+
+/* device cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px}
+.dev{background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.dev h3{color:var(--c)}
+.dev dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:.95rem}
+.dev dt{font:500 .72rem/1.9 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.dev dd{margin:0;min-width:0}
+.c-hr{--c:var(--hr)} .c-mac{--c:var(--mac)} .c-quest{--c:var(--quest)} .c-cloud{--c:var(--cloud)} .c-app{--c:var(--app)}
+
+/* steps */
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:14px;counter-reset:s}
+.steps li{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px 18px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.steps li::before{content:"Step " counter(s);font:500 .72rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.steps b{font-size:1.02rem}
+.steps span{color:var(--muted);font-size:.93rem;line-height:1.5}
+
+/* story */
+.story{display:flex;flex-direction:column;gap:0;border-left:2px solid var(--line);margin-left:10px}
+.beat{position:relative;padding:0 0 26px 30px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 20px;align-items:start}
+.beat::before{content:"";position:absolute;left:-8px;top:4px;width:14px;height:14px;border-radius:50%;background:var(--bg);border:2px solid var(--accent)}
+.beat.hot::before{background:var(--fail);border-color:var(--fail)}
+.beat h3{font-size:1.25rem}
+.beat p{color:var(--ink);font-size:.97rem}
+.beat .meta{font:500 .75rem/1.3 var(--mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.enemy{grid-row:1 / span 3;grid-column:2;text-align:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:84px}
+.enemy b{display:block;font:700 1.8rem/1 var(--display)}
+.enemy small{font:500 .65rem/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.radio{display:inline-flex;gap:6px;align-items:center;font:500 .72rem/1 var(--mono);color:var(--quest);letter-spacing:.06em;text-transform:uppercase}
+.radio::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--quest)}
+
+/* decision flow */
+.flow{display:flex;flex-direction:column;align-items:center;gap:0}
+.fbox{width:min(100%,560px);background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:14px 18px;display:flex;flex-direction:column;gap:4px}
+.fbox.start{border-color:var(--fail)}
+.fbox .k{font:500 .72rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.fbox .k.m{color:var(--quest)}
+.fbox b{font-size:1.02rem}
+.fbox span{color:var(--muted);font-size:.93rem;line-height:1.45}
+.down{width:2px;height:26px;background:var(--line);position:relative}
+.down::after{content:"";position:absolute;bottom:-1px;left:-5px;border:6px solid transparent;border-top-color:var(--line);border-bottom:0}
+.diamond{width:min(100%,560px);text-align:center;background:var(--sunk);border:1.5px dashed var(--muted);border-radius:12px;padding:14px 18px;font-weight:600}
+.diamond small{display:block;font-weight:400;color:var(--muted)}
+.split{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:0}
+.branch{display:flex;flex-direction:column;align-items:center;gap:0;min-width:0}
+.blabel{font:600 .8rem/1 var(--mono);letter-spacing:.1em;padding:6px 10px;border-radius:999px;margin-top:10px}
+.blabel.no{color:var(--fail);border:1.5px solid var(--fail)}
+.blabel.yes{color:var(--ok);border:1.5px solid var(--ok)}
+.end{width:100%;text-align:center;font:800 1.5rem/1 var(--display);letter-spacing:.06em;text-transform:uppercase;padding:16px;border-radius:12px;border:2px solid currentColor}
+.end.fail{color:var(--fail)} .end.ok{color:var(--ok)}
+.open-q{width:min(100%,560px);font-size:.88rem;color:var(--muted);border-left:3px solid var(--cloud);padding:6px 12px;margin-top:10px}
+
+/* tables */
+.tbl{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+table{border-collapse:collapse;width:100%;min-width:720px;font-size:.94rem}
+th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 .72rem/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);background:var(--sunk)}
+tr:last-child td{border-bottom:0}
+td .dev-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--c)}
+
+/* two-col */
+.duo{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.panel ol,.panel ul{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:8px}
+.panel li{max-width:64ch}
+.panel.future{border-style:dashed}
+
+.team{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:14px}
+.mate{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:6px}
+.mate b{font:700 1.5rem/1 var(--display);text-transform:uppercase;letter-spacing:.03em}
+.mate span{color:var(--muted);font-size:.94rem}
+
+.gloss{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px 24px;margin:0}
+.gloss div{display:flex;flex-direction:column;gap:2px;padding:10px 0;border-bottom:1px solid var(--line)}
+.gloss dt{font:600 .95rem var(--mono)}
+.gloss dd{margin:0;color:var(--muted);font-size:.93rem}
+
+footer{color:var(--muted);font-size:.88rem;border-top:1px solid var(--line);padding-top:18px}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+@media (max-width:760px){
+  .breath{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .beat{grid-template-columns:minmax(0,1fr)}
+  .enemy{grid-row:auto;grid-column:1;justify-self:start;display:flex;gap:8px;align-items:baseline}
+  .split{grid-template-columns:minmax(0,1fr)}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- HERO -->
+<header class="hero">
+  <div class="who">Team Stealth mode · Hackathon 2K26 · Adaptive Stress-Inoculation Trainer</div>
+  <h1>How our trainer works</h1>
+  <p>A soldier puts on a Meta Quest headset and a WHOOP band, then plays one realistic mission. While he plays, we track his heart rate and every decision he makes. After the mission, the app shows him how fast and how well he reacted under stress.</p>
+  <div class="breath" aria-label="The system in four words">
+    <div class="c1"><b>1 · Feel</b><span>WHOOP reads his heart rate every second.</span></div>
+    <div class="c2"><b>2 · Think</b><span>The Mac laptop collects all the data and works it out.</span></div>
+    <div class="c3"><b>3 · Act</b><span>The Quest headset runs the mission and records what he does.</span></div>
+    <div class="c4"><b>4 · Review</b><span>The cloud backend analyses it; the app shows the report.</span></div>
+  </div>
+  <div class="tags">Every fact on this page is tagged with where it comes from:
+    <span class="src s-sketch">Sketch</span> our hand-drawn plan
+    <span class="src s-script">Script</span> Scenario One script
+    <span class="src s-repo">Repo</span> team contracts (18 Oct)
+    <span class="src s-prop">Proposed</span> recommended, not built yet
+  </div>
+</header>
+
+<!-- MAP -->
+<section aria-labelledby="map-h">
+  <div class="sec-head">
+    <span class="eyebrow">The big picture</span>
+    <h2 id="map-h">System map</h2>
+    <p class="lede">Five boxes, coloured lines between them. Follow the moving dots: each dot is data travelling in the direction of the arrow.</p>
+  </div>
+  <div class="map-box">
+    <div class="map-scroll">
+<svg viewBox="0 0 1100 640" role="img" aria-labelledby="svg-t svg-d">
+<title id="svg-t">Stealth Mode system architecture</title>
+<desc id="svg-d">WHOOP band sends heart rate over Bluetooth to the Mac laptop. The Mac and the Meta Quest talk over Wi-Fi: the Mac sends heart rate and stress level on UDP port 5005, the Quest sends game events on UDP port 5006 and, as proposed, uploads the voice clip. The Mac uploads session data to the cloud app backend, which sends analysis and a session summary back. The backend feeds the app report.</desc>
+<defs>
+  <marker id="m-hr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-hr"/></marker>
+  <marker id="m-mac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-mac"/></marker>
+  <marker id="m-quest" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-quest"/></marker>
+  <marker id="m-cloud" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-cloud"/></marker>
+  <marker id="m-app" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-app"/></marker>
+</defs>
+
+<!-- Wi-Fi zone -->
+<rect class="zone" x="692" y="78" width="146" height="214" rx="10"/>
+<text x="765" y="70" text-anchor="middle" class="lab">Wi-Fi network</text>
+
+<!-- WHOOP -> MAC -->
+<path class="wire w-hr" d="M272,175 L428,175" marker-end="url(#m-hr)"/>
+<text x="350" y="164" text-anchor="middle" class="lab">BLE (Bluetooth)</text>
+<text x="350" y="194" text-anchor="middle" class="lab-sub">heart rate · every 1 s</text>
+<circle r="5" class="flow-dot dot-hr"><animateMotion dur="1s" repeatCount="indefinite" path="M272,175 L420,175"/></circle>
+
+<!-- MAC -> QUEST (5005) -->
+<path class="wire w-mac" d="M692,120 L838,120" marker-end="url(#m-mac)"/>
+<text x="765" y="111" text-anchor="middle" class="lab">UDP 5005 →</text>
+<text x="765" y="137" text-anchor="middle" class="lab-sub">HR + stress level 0–3</text>
+<circle r="5" class="flow-dot dot-mac"><animateMotion dur="1.6s" repeatCount="indefinite" path="M692,120 L830,120"/></circle>
+
+<!-- QUEST -> MAC (5006) -->
+<path class="wire w-quest" d="M838,190 L692,190" marker-end="url(#m-quest)"/>
+<text x="765" y="181" text-anchor="middle" class="lab">← UDP 5006</text>
+<text x="765" y="207" text-anchor="middle" class="lab-sub">game events + time</text>
+<circle r="5" class="flow-dot dot-quest"><animateMotion dur="1.6s" begin=".5s" repeatCount="indefinite" path="M838,190 L700,190"/></circle>
+
+<!-- QUEST -> MAC voice (proposed) -->
+<path class="wire w-quest w-dash" d="M838,258 L692,258" marker-end="url(#m-quest)"/>
+<text x="765" y="249" text-anchor="middle" class="lab">← Wi-Fi upload</text>
+<text x="765" y="275" text-anchor="middle" class="lab-sub">voice clip (proposed)</text>
+
+<!-- MAC <-> CLOUD -->
+<path class="wire w-cloud" d="M520,338 L520,418" marker-end="url(#m-cloud)"/>
+<path class="wire w-cloud" d="M600,420 L600,340" marker-end="url(#m-cloud)"/>
+<text x="508" y="372" text-anchor="end" class="lab">upload</text>
+<text x="508" y="389" text-anchor="end" class="lab-sub">session data</text>
+<text x="612" y="372" class="lab">send back</text>
+<text x="612" y="389" class="lab-sub">analysis + summary</text>
+<text x="560" y="383" text-anchor="middle" class="n-small">internet</text>
+<circle r="5" class="flow-dot dot-cloud"><animateMotion dur="1.8s" repeatCount="indefinite" path="M520,338 L520,410"/></circle>
+<circle r="5" class="flow-dot dot-cloud"><animateMotion dur="1.8s" begin=".9s" repeatCount="indefinite" path="M600,420 L600,348"/></circle>
+
+<!-- CLOUD -> APP -->
+<path class="wire w-app" d="M692,512 L838,512" marker-end="url(#m-app)"/>
+<text x="765" y="503" text-anchor="middle" class="lab">session report</text>
+<text x="765" y="529" text-anchor="middle" class="lab-sub">after each session</text>
+<circle r="5" class="flow-dot dot-app"><animateMotion dur="1.6s" repeatCount="indefinite" path="M692,512 L830,512"/></circle>
+
+<!-- WHOOP node -->
+<g class="n-whoop">
+  <rect class="n-card" x="30" y="70" width="242" height="210" rx="18"/>
+  <text x="52" y="102" class="n-eye" style="fill:var(--hr)">THE SENSOR</text>
+  <text x="52" y="134" class="n-title">WHOOP band</text>
+  <text x="52" y="156" class="n-sub">Worn on the trainee's wrist</text>
+  <rect class="chip" x="52" y="174" width="60" height="28" rx="14"/><text x="82" y="193" text-anchor="middle" class="lab">PPG ✓</text>
+  <rect class="chip" x="120" y="174" width="60" height="28" rx="14"/><text x="150" y="193" text-anchor="middle" class="lab">ECG ✓</text>
+  <rect class="chip-dash" x="188" y="174" width="64" height="28" rx="14"/><text x="220" y="193" text-anchor="middle" class="lab" style="fill:var(--muted)">LDF *</text>
+  <text x="52" y="234" class="n-li">Sends out only heart rate.</text>
+  <text x="52" y="258" class="n-small">* LDF is not in WHOOP: future add-on</text>
+</g>
+
+<!-- MAC node -->
+<g class="n-mac">
+  <rect class="n-card" x="430" y="40" width="262" height="298" rx="18"/>
+  <text x="452" y="72" class="n-eye" style="fill:var(--mac)">THE BRAIN</text>
+  <text x="452" y="104" class="n-title">Mac laptop</text>
+  <text x="452" y="126" class="n-sub">Runs relay.py in Terminal.app</text>
+  <rect class="inner" x="450" y="142" width="222" height="38" rx="9"/>
+  <text x="464" y="166" class="n-li"><tspan font-weight="600">HR</tspan> · live, printed every second</text>
+  <rect class="inner" x="450" y="188" width="222" height="38" rx="9"/>
+  <text x="464" y="212" class="n-li"><tspan font-weight="600">Params</tspan> · stress level 0–3</text>
+  <rect class="inner" x="450" y="234" width="222" height="38" rx="9"/>
+  <text x="464" y="258" class="n-li"><tspan font-weight="600">Processing</tspan> · logs the session</text>
+  <rect class="inner-dash" x="450" y="280" width="222" height="38" rx="9"/>
+  <text x="464" y="304" class="n-li"><tspan font-weight="600">Voice agent</tspan> · checks words</text>
+</g>
+
+<!-- QUEST node -->
+<g class="n-quest">
+  <rect class="n-card" x="838" y="62" width="232" height="246" rx="18"/>
+  <text x="860" y="94" class="n-eye" style="fill:var(--quest)">THE MISSION</text>
+  <text x="860" y="126" class="n-title">Meta Quest</text>
+  <text x="860" y="148" class="n-sub">Trainee plays the Engineer</text>
+  <text x="860" y="178" class="n-li">• Unity scene + 2D briefing</text>
+  <text x="860" y="202" class="n-li">• Team radio voices in his ears</text>
+  <text x="860" y="226" class="n-li">• Virtual gun, hand tracking</text>
+  <text x="860" y="250" class="n-li">• Mic records him speaking</text>
+  <text x="860" y="274" class="n-li">• Logs every action + time</text>
+  <text x="860" y="296" class="n-small">Shows results as AR overlay at the end</text>
+</g>
+
+<!-- CLOUD node -->
+<g class="n-cloud">
+  <rect class="n-card" x="430" y="420" width="262" height="184" rx="18"/>
+  <text x="452" y="452" class="n-eye" style="fill:var(--cloud)">THE ANALYST</text>
+  <text x="452" y="484" class="n-title">Cloud app backend</text>
+  <text x="452" y="514" class="n-li">• Data analysis</text>
+  <text x="452" y="538" class="n-li">• Session summary</text>
+  <text x="452" y="568" class="n-small">Today's prototype in the repo:</text>
+  <text x="452" y="585" class="n-small">a CSV file + Streamlit dashboard</text>
+</g>
+
+<!-- APP node -->
+<g class="n-app">
+  <rect class="n-card" x="838" y="430" width="232" height="164" rx="18"/>
+  <text x="860" y="462" class="n-eye" style="fill:var(--app)">THE REPORT</text>
+  <text x="860" y="494" class="n-title">The app</text>
+  <text x="860" y="522" class="n-li">• Reaction + response times</text>
+  <text x="860" y="546" class="n-li">• Radio speed, firing accuracy</text>
+  <text x="860" y="570" class="n-li">• Heart rate through the mission</text>
+</g>
+
+<!-- Legend -->
+<g>
+  <text x="30" y="352" class="n-eye" style="fill:var(--muted)">HOW TO READ THE MAP</text>
+  <line x1="30" y1="378" x2="70" y2="378" class="wire w-hr"/><text x="82" y="383" class="n-li">heart data</text>
+  <line x1="30" y1="406" x2="70" y2="406" class="wire w-mac"/><text x="82" y="411" class="n-li">settings sent to headset</text>
+  <line x1="30" y1="434" x2="70" y2="434" class="wire w-quest"/><text x="82" y="439" class="n-li">what the trainee did / said</text>
+  <line x1="30" y1="462" x2="70" y2="462" class="wire w-cloud"/><text x="82" y="467" class="n-li">to and from the cloud</text>
+  <line x1="30" y1="490" x2="70" y2="490" class="wire w-app"/><text x="82" y="495" class="n-li">final report</text>
+  <line x1="30" y1="522" x2="70" y2="522" class="wire w-quest w-dash"/><text x="82" y="527" class="n-li">dashed = proposed / future</text>
+  <text x="30" y="562" class="n-small">Arrowhead = direction the data travels.</text>
+  <text x="30" y="580" class="n-small">Moving dot = data in motion.</text>
+</g>
+</svg>
+    </div>
+    <div class="swipe">← Swipe sideways to see the whole map →</div>
+  </div>
+</section>
+
+<!-- DEVICES -->
+<section aria-labelledby="dev-h">
+  <div class="sec-head">
+    <span class="eyebrow">Box by box</span>
+    <h2 id="dev-h">What each part does</h2>
+  </div>
+  <div class="cards">
+    <article class="dev c-hr">
+      <h3>WHOOP band</h3>
+      <p>A fitness band on the wrist. Its light sensor (PPG) and heart sensor (ECG) read the heartbeat.</p>
+      <dl>
+        <dt>Gets</dt><dd>The trainee's pulse, straight from his skin.</dd>
+        <dt>Sends</dt><dd>Live heart rate, once every second, over Bluetooth (BLE) to the Mac. <span class="src s-sketch">Sketch</span></dd>
+        <dt>Setting</dt><dd><b>Broadcast Heart Rate</b> must be ON in the WHOOP app. <span class="src s-repo">Repo</span></dd>
+      </dl>
+    </article>
+    <article class="dev c-mac">
+      <h3>Mac laptop</h3>
+      <p>The middleman. Everything passes through it. A Python script, <code>relay.py</code>, runs in Terminal and prints the live heart rate every second.</p>
+      <dl>
+        <dt>Gets</dt><dd>Heart rate from WHOOP. Game events (and, proposed, voice clips) from the Quest.</dd>
+        <dt>Does</dt><dd>Turns heart rate into a stress level from 0 to 3 <span class="src s-repo">Repo</span>, keeps a time-stamped log of the whole session, and runs the voice agent <span class="src s-prop">Proposed</span>.</dd>
+        <dt>Sends</dt><dd>Heart rate + stress level to the Quest. Session data to the cloud backend. <span class="src s-sketch">Sketch</span></dd>
+      </dl>
+    </article>
+    <article class="dev c-quest">
+      <h3>Meta Quest headset</h3>
+      <p>Where the mission happens. Built in Unity. The trainee is the <b>Engineer</b> of Team Alpha, and only his performance is measured. <span class="src s-script">Script</span></p>
+      <dl>
+        <dt>Plays</dt><dd>30-second cinema-style briefing video, then the mission. All team radio voices play in his ears.</dd>
+        <dt>Tracks</dt><dd>His hands (XR hand tracking with a hand overlay) holding a virtual gun, where he moves, and his voice through the mic.</dd>
+        <dt>Sends</dt><dd>Every action with its exact time to the Mac over Wi-Fi. <span class="src s-repo">Repo</span></dd>
+      </dl>
+    </article>
+    <article class="dev c-cloud">
+      <h3>Cloud app backend</h3>
+      <p>The analyst. It receives the finished session from the Mac and works out the results. <span class="src s-sketch">Sketch</span></p>
+      <dl>
+        <dt>Gets</dt><dd>The full session log: heart rate, events, timings, voice results.</dd>
+        <dt>Does</dt><dd>Data analysis and a session summary.</dd>
+        <dt>Sends</dt><dd>The summary back to the Mac, and the report to the app.</dd>
+        <dt>Today</dt><dd>The repo prototype saves a CSV file and shows it in a Streamlit dashboard on the laptop. <span class="src s-repo">Repo</span></dd>
+      </dl>
+    </article>
+    <article class="dev c-app">
+      <h3>The app</h3>
+      <p>What the trainee and the instructor look at after the mission. <span class="src s-sketch">Sketch</span></p>
+      <dl>
+        <dt>Shows</dt><dd>Reaction and response times, how fast he spoke on the radio, firing accuracy, the mission result, and his heart rate across the mission.</dd>
+        <dt>Built by</dt><dd>Anika (features and parameters), Aditi (UI/UX).</dd>
+      </dl>
+    </article>
+  </div>
+</section>
+
+<!-- ONE SESSION -->
+<section aria-labelledby="ses-h">
+  <div class="sec-head">
+    <span class="eyebrow">In order</span>
+    <h2 id="ses-h">One session, start to finish</h2>
+  </div>
+  <ol class="steps">
+    <li><b>Gear up</b><span>Trainee wears the WHOOP band and the Quest. The Mac and the Quest join the same Wi-Fi. <code>relay.py</code> is started from Terminal.app.</span></li>
+    <li><b>Briefing</b><span>First 30 seconds: a fullscreen 2D briefing video, made to look like a movie in a theatre.</span></li>
+    <li><b>Live heart loop</b><span>Every second: WHOOP → Mac → the Mac works out stress level 0–3 → sends it to the Quest.</span></li>
+    <li><b>Mission plays</b><span>Radio voices, gunfire, rain, the trip mine. The Quest logs every move and sends it to the Mac.</span></li>
+    <li><b>The test moment</b><span>The Communicator is hit by a trip mine. A clock starts. We time what the trainee does next.</span></li>
+    <li><b>Mission ends</b><span>Success or failure. The headset shows his results as an AR overlay.</span></li>
+    <li><b>Analysis</b><span>The Mac uploads the session. The cloud backend analyses it and writes a summary.</span></li>
+    <li><b>Report</b><span>The app shows every metric. The summary also returns to the Mac.</span></li>
+  </ol>
+</section>
+
+<!-- STORY -->
+<section aria-labelledby="story-h">
+  <div class="sec-head">
+    <span class="eyebrow">Scenario One <span class="src s-script">Script</span></span>
+    <h2 id="story-h">The mission story</h2>
+    <p class="lede">An enemy nation is building a bomb in a heavily guarded warehouse. Our intelligence confirms the attack is planned on India. Team Alpha (6 soldiers) crosses into the neighbouring country to stop it. Everyone wears a radio earpiece. The counter on the right shows enemies still standing.</p>
+  </div>
+  <div class="story">
+    <div class="beat">
+      <span class="meta">0:00 – 0:30</span>
+      <h3>Briefing</h3>
+      <p>A fullscreen 2D video inside the headset, styled like a movie on a streaming app.</p>
+      <div class="enemy"><b>10</b><small>enemies</small></div>
+    </div>
+    <div class="beat">
+      <span class="meta">Formation 2 + 2 + 2</span>
+      <h3>Team Alpha moves in</h3>
+      <p>Captain + Paramedic sneak in from behind the warehouse. Communicator + Engineer (<b>the trainee</b>) fire from the front as a distraction. Two Snipers cover from two corners. Enemy: 5 guards outside, 5 inside guarding the bomb.</p>
+      <div class="enemy"><b>10</b><small>enemies</small></div>
+    </div>
+    <div class="beat">
+      <span class="meta">Outside guards</span>
+      <h3>First contact</h3>
+      <p>Each Sniper takes down one guard and reports it. Engineer and Communicator take down one each. The last outside guard escapes to cover and screams for help, alerting the 5 inside.</p>
+      <span class="radio">Heard on radio</span>
+      <div class="enemy"><b>6</b><small>enemies</small></div>
+    </div>
+    <div class="beat">
+      <span class="meta">Alarm</span>
+      <h3>They rush out</h3>
+      <p>The 5 from inside run out the front, firing hard: 6 enemies now outside. The Communicator radios the team and tells the Captain to go in from behind and defuse or destroy the bomb. Captain and Paramedic get in and confirm.</p>
+      <span class="radio">Heard on radio</span>
+      <div class="enemy"><b>6</b><small>enemies</small></div>
+    </div>
+    <div class="beat">
+      <span class="meta">Weather turns</span>
+      <h3>Heavy rain</h3>
+      <p>A Sniper takes one down. Then heavy rain: the Snipers can't see and stop shooting, and say so. The Communicator and the Engineer each take one more down and report it in their own voices.</p>
+      <span class="radio">Heard on radio</span>
+      <div class="enemy"><b>3</b><small>enemies</small></div>
+    </div>
+    <div class="beat hot">
+      <span class="meta" style="color:var(--fail)">Measured from here</span>
+      <h3>Trip mine</h3>
+      <p>The Communicator radios that he is moving forward and asks the Engineer for cover. He hits a trip mine, is thrown back, injured, can't move, and his radio breaks. He shouts to the Engineer for help (out loud, not on radio, still heard in the headset).</p>
+      <div class="enemy"><b>3</b><small>enemies</small></div>
+    </div>
+  </div>
+</section>
+
+<!-- DECISION FLOW -->
+<section aria-labelledby="flow-h">
+  <div class="sec-head">
+    <span class="eyebrow">The test <span class="src s-script">Script</span></span>
+    <h2 id="flow-h">The moment we measure</h2>
+    <p class="lede">Everything below happens after the trip mine. M1 to M4 are the measurements.</p>
+  </div>
+  <div class="flow">
+    <div class="fbox start"><span class="k" style="color:var(--fail)">Clock starts <span class="src s-prop">Proposed</span></span><b>Trip mine goes off. Communicator down.</b><span>We start every timer from this exact moment, so all trainees are timed the same way.</span></div>
+    <div class="down"></div>
+    <div class="fbox"><span class="k m">M1 · Radio report speed</span><b>He tells the team on the radio, speaking out loud in real life.</b><span>We record his voice and time how many seconds it takes him to start talking.</span></div>
+    <div class="down"></div>
+    <div class="diamond">Does he drag the Communicator to cover?<small>(the big rock on his right)</small></div>
+    <div class="split">
+      <div class="branch">
+        <span class="blabel no">NO · he fights alone</span>
+        <div class="down"></div>
+        <div class="fbox"><b>He takes on the 3 enemies himself.</b><span>One of them shoots him. The session ends.</span></div>
+        <div class="down"></div>
+        <div class="end fail">Mission failed</div>
+      </div>
+      <div class="branch">
+        <span class="blabel yes">YES</span>
+        <div class="down"></div>
+        <div class="fbox"><span class="k m">M2 · Time to cover</span><b>Seconds until the Communicator is safe behind the rock.</b></div>
+        <div class="down"></div>
+        <div class="fbox"><span class="k m">M3 · Keeps fighting</span><b>Does he keep firing at the 3 enemies from cover?</b><span>Virtual gun in his hands, hand tracking. We count shots and hits.</span></div>
+        <div class="down"></div>
+        <div class="fbox"><span class="k m">M4 · Clear radio call</span><b>He reports he took cover and protected his comrade, and asks for backup once the bomb is defused.</b></div>
+        <div class="down"></div>
+        <div class="fbox"><b>Bomb neutralised.</b><span>Captain and Paramedic confirm on radio, come out, and eliminate the 3 enemies.</span></div>
+        <div class="down"></div>
+        <div class="end ok">Mission successful</div>
+      </div>
+    </div>
+    <div class="open-q"><b>Open question:</b> the script does not yet say what happens if his M4 radio call is not clear. Decide this before building.</div>
+  </div>
+</section>
+
+<!-- METRICS TABLE -->
+<section aria-labelledby="met-h">
+  <div class="sec-head">
+    <span class="eyebrow">The scorecard</span>
+    <h2 id="met-h">Every number we record</h2>
+    <p class="lede">All of these appear in the AR overlay at the end and in the app.</p>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Metric</th><th>In plain words</th><th>Measured by</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td><b>Radio report speed</b> (M1)</td><td>Seconds from the blast until he starts speaking on the radio.</td><td class="c-quest"><span class="dev-dot"></span>Quest mic</td><td><span class="src s-script">Script</span></td></tr>
+        <tr><td><b>Radio message content</b> (M1, M4)</td><td>Did he say the right things: comrade down, took cover, need backup?</td><td class="c-mac"><span class="dev-dot"></span>Mac voice agent</td><td><span class="src s-prop">Proposed</span></td></tr>
+        <tr><td><b>Time to cover</b> (M2)</td><td>Seconds until the injured Communicator is behind the rock.</td><td class="c-quest"><span class="dev-dot"></span>Quest</td><td><span class="src s-script">Script</span></td></tr>
+        <tr><td><b>Decision</b></td><td>Took cover with his comrade, or fought alone (mission failed).</td><td class="c-quest"><span class="dev-dot"></span>Quest</td><td><span class="src s-script">Script</span></td></tr>
+        <tr><td><b>Firing accuracy</b> (M3)</td><td>Hits divided by shots fired.</td><td class="c-quest"><span class="dev-dot"></span>Quest</td><td><span class="src s-sketch">Sketch</span></td></tr>
+        <tr><td><b>Kept firing from cover</b> (M3)</td><td>Yes or no, and how many shots after reaching cover.</td><td class="c-quest"><span class="dev-dot"></span>Quest</td><td><span class="src s-script">Script</span></td></tr>
+        <tr><td><b>Reaction / response times</b></td><td>How quickly he responds to each event in the mission.</td><td class="c-quest"><span class="dev-dot"></span>Quest</td><td><span class="src s-sketch">Sketch</span></td></tr>
+        <tr><td><b>Heart rate</b></td><td>Beats per minute, every second, matched to what was happening in the mission.</td><td class="c-hr"><span class="dev-dot"></span>WHOOP → Mac</td><td><span class="src s-sketch">Sketch</span></td></tr>
+        <tr><td><b>Mission result</b></td><td>Successful or failed.</td><td class="c-quest"><span class="dev-dot"></span>Quest</td><td><span class="src s-script">Script</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- DATA LINKS TABLE -->
+<section aria-labelledby="link-h">
+  <div class="sec-head">
+    <span class="eyebrow">The wires</span>
+    <h2 id="link-h">What travels where</h2>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>From → To</th><th>How</th><th>What</th><th>When</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td><b>WHOOP → Mac</b></td><td>Bluetooth (BLE)</td><td>Heart rate</td><td>Every second</td><td><span class="src s-sketch">Sketch</span></td></tr>
+        <tr><td><b>Mac → Quest</b></td><td>Wi-Fi · UDP port <code>5005</code></td><td>Heart rate + stress level 0–3</td><td>Live</td><td><span class="src s-repo">Repo</span></td></tr>
+        <tr><td><b>Quest → Mac</b></td><td>Wi-Fi · UDP port <code>5006</code></td><td>Game events, each with its time</td><td>Whenever something happens</td><td><span class="src s-repo">Repo</span></td></tr>
+        <tr><td><b>Quest → Mac</b></td><td>Wi-Fi upload</td><td>Recording of what he said on the radio</td><td>After each radio call</td><td><span class="src s-prop">Proposed</span></td></tr>
+        <tr><td><b>Mac → Cloud</b></td><td>Internet, sent by the Terminal script</td><td>Full session data</td><td>After the session</td><td><span class="src s-sketch">Sketch</span></td></tr>
+        <tr><td><b>Cloud → Mac + App</b></td><td>Internet</td><td>Analysis + session summary</td><td>After the session</td><td><span class="src s-sketch">Sketch</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="lede">The stress level lets the headset raise or lower background pressure. The measured moments stay identical for every trainee, so scores stay comparable. <span class="src s-repo">Repo</span></p>
+</section>
+
+<!-- VOICE + FUTURE -->
+<section aria-labelledby="voice-h">
+  <div class="sec-head">
+    <span class="eyebrow">Design choices</span>
+    <h2 id="voice-h">Voice agent and future add-ons</h2>
+  </div>
+  <div class="duo">
+    <div class="panel">
+      <h3>How the voice agent works <span class="src s-prop">Proposed</span></h3>
+      <ol>
+        <li><b>On the Quest:</b> the mic listens. The moment his voice gets loud enough, the Quest stamps the time and sends it to the Mac on port 5006. This gives the exact reaction time with no network delay.</li>
+        <li><b>Quest → Mac:</b> the Quest uploads the voice recording over Wi-Fi.</li>
+        <li><b>On the Mac:</b> speech-to-text that runs offline (for example Whisper) turns his words into text and checks for the key points: comrade down, took cover, need backup.</li>
+      </ol>
+      <p class="lede" style="font-size:.95rem">Why this split: timing stays exact on the headset, the heavy speech work runs on the Mac's stronger chip, and nothing depends on the venue's internet during the mission.</p>
+    </div>
+    <div class="panel future">
+      <h3>Built to scale: LDF <span class="src s-sketch">Sketch</span></h3>
+      <p><b>LDF (Laser Doppler Flowmetry)</b> measures blood flow under the skin. WHOOP does <b>not</b> have it.</p>
+      <p>We show it as a future sensor: adding it later would give more accurate stress readings. It plugs into the same place as WHOOP, sending data to the Mac, so nothing else in the system has to change.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CHECKLIST -->
+<section aria-labelledby="chk-h">
+  <div class="sec-head">
+    <span class="eyebrow">Before you press start</span>
+    <h2 id="chk-h">Setup checklist</h2>
+  </div>
+  <div class="panel">
+    <ul>
+      <li>WHOOP app: <b>Broadcast Heart Rate</b> is ON. <span class="src s-repo">Repo</span></li>
+      <li>Start <code>relay/relay.py</code> from macOS <b>Terminal.app</b>. Other shells may not have Bluetooth permission and the script stops. <span class="src s-repo">Repo</span></li>
+      <li>The Mac and the Quest are on the <b>same Wi-Fi network</b>, so ports 5005 and 5006 can reach each other. <span class="src s-repo">Repo</span></li>
+      <li>The Mac has internet access to reach the cloud backend after the session. <span class="src s-sketch">Sketch</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- TEAM -->
+<section aria-labelledby="team-h">
+  <div class="sec-head">
+    <span class="eyebrow">Who builds what <span class="src s-sketch">Sketch</span></span>
+    <h2 id="team-h">Team Stealth mode</h2>
+  </div>
+  <div class="team">
+    <div class="mate"><b style="color:var(--app)">Anika</b><span>App features and parameters (WHOOP). Co-creates the briefing.</span></div>
+    <div class="mate"><b style="color:var(--quest)">Aditi</b><span>Briefing 2D video. App UI/UX.</span></div>
+    <div class="mate"><b style="color:var(--cloud)">Gatik</b><span>Scenario script. Blender 3D models.</span></div>
+    <div class="mate"><b style="color:var(--mac)">Pulin</b><span>Unity engine and 3D rendering (the Quest app).</span></div>
+  </div>
+</section>
+
+<!-- GLOSSARY -->
+<section aria-labelledby="gl-h">
+  <div class="sec-head">
+    <span class="eyebrow">Plain English</span>
+    <h2 id="gl-h">Words on this page</h2>
+  </div>
+  <dl class="gloss">
+    <div><dt>BLE</dt><dd>Bluetooth Low Energy. The short-range wireless link from the band to the laptop.</dd></div>
+    <div><dt>Wi-Fi</dt><dd>The local network the laptop and headset share.</dd></div>
+    <div><dt>UDP port</dt><dd>A numbered "door" on a device. 5005 and 5006 are the two doors our devices use to talk.</dd></div>
+    <div><dt>Terminal</dt><dd>The Mac app where our Python script runs and prints live heart rate.</dd></div>
+    <div><dt>PPG</dt><dd>Measures pulse by shining light into the skin. Inside WHOOP.</dd></div>
+    <div><dt>ECG</dt><dd>Reads the heart's electrical signal. Inside WHOOP.</dd></div>
+    <div><dt>LDF</dt><dd>Laser Doppler Flowmetry. Measures blood flow. Future add-on, not in WHOOP.</dd></div>
+    <div><dt>Stress level 0–3</dt><dd>One simple number the laptop works out from heart rate. 0 = calm, 3 = highest.</dd></div>
+    <div><dt>XR hand tracking</dt><dd>The headset's cameras follow his real hands, so he can hold the virtual gun without a controller.</dd></div>
+    <div><dt>AR overlay</dt><dd>Text and numbers drawn on top of what he sees in the headset.</dd></div>
+    <div><dt>Unity</dt><dd>The game engine we use to build the mission.</dd></div>
+    <div><dt>Voice agent</dt><dd>Software that listens to his radio call, times it, and checks what he said.</dd></div>
+  </dl>
+</section>
+
+<footer>
+  Sources: team architecture sketch and role notes (3 Nov 2026), Scenario One script (3 Nov 2026), team repo contracts (18 Oct 2026). Items tagged <span class="src s-prop">Proposed</span> are recommendations and are not built yet.
+</footer>
+
+</div>
+</body>
+</html>

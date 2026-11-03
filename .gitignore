@@ -1,0 +1,24 @@
+# Pre-hackathon material (not part of the submission)
+2026-10-08_progress.md
+*.pptx
+.claude/
+.DS_Store
+
+# Unity
+Stealth Mode/[Ll]ibrary/
+Stealth Mode/[Tt]emp/
+Stealth Mode/[Oo]bj/
+Stealth Mode/[Bb]uild/
+Stealth Mode/[Bb]uilds/
+Stealth Mode/[Ll]ogs/
+Stealth Mode/[Uu]ser[Ss]ettings/
+Stealth Mode/*.csproj
+Stealth Mode/*.sln
+Stealth Mode/.vs/
+Stealth Mode/.idea/
+*.apk
+*.aab
+
+# Python
+__pycache__/
+.venv/
