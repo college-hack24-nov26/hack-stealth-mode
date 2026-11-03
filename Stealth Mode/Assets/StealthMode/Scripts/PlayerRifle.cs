@@ -7,8 +7,8 @@ namespace StealthMode
 {
     /// <summary>
     /// The Engineer's AK-203.
-    /// Quest: the rifle follows the right hand (pistol grip); when the left hand is forward it becomes a
-    /// two-handed hold aimed from right to left palm. Curling the right index finger fires (semi-auto).
+    /// Quest: a free rigid body you pick up with either hand however you like (see UpdateXr); the index finger on the
+    /// trigger fires (semi-auto).
     /// Editor/desktop fallback: mouse look, left click fires, Q/E lean out of cover.
     /// </summary>
     public class PlayerRifle : MonoBehaviour
@@ -23,10 +23,10 @@ namespace StealthMode
 
         Transform muzzle;
         XRHandSubsystem hands;
-        bool triggerHeld;
+
         float lastShot, recoil, lean, forcedLean = float.NaN;
         Vector2 look;
-        Vector3 rifleVel;
+
         static readonly List<XRHandSubsystem> found = new List<XRHandSubsystem>();
 
         void Start()
@@ -44,6 +44,29 @@ namespace StealthMode
         }
 
         // ---------------------------------------------------------------- Quest hands
+        // The rifle is a real rigid body. It starts floating in front of the Engineer; close a hand around it to pick it
+        // up (held exactly the way you grabbed it), open the hand to drop it (gravity, collisions). A second hand on it
+        // steers the barrel. Fires when an index finger resting on the trigger squeezes.
+        class Grab { public bool holding; public Vector3 localPoint; public Quaternion localRot; public bool trigger; }
+        readonly Grab[] grabs = { new Grab(), new Grab() };   // 0 = left, 1 = right
+        Rigidbody body;
+        Collider bodyCol;
+        Vector3 lastPos;
+        bool placed;
+        static readonly Vector3 TriggerLocal = new Vector3(0, 0.035f, 0.055f);
+
+        void SetupBody()
+        {
+            body = rifle.gameObject.AddComponent<Rigidbody>();
+            body.mass = 3.6f; body.interpolation = RigidbodyInterpolation.Interpolate;
+            body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+            body.isKinematic = true; body.useGravity = false;
+            var box = rifle.gameObject.AddComponent<BoxCollider>();
+            box.center = new Vector3(0, -0.036f, 0.144f); box.size = new Vector3(0.07f, 0.2f, 1.12f);
+            bodyCol = box;
+            rifle.SetParent(null, true);
+        }
+
         void UpdateXr()
         {
             if (hands == null || !hands.running)
@@ -52,31 +75,85 @@ namespace StealthMode
                 hands = found.Count > 0 ? found[0] : null;
                 if (hands == null) return;
             }
-            var right = hands.rightHand;
-            var left = hands.leftHand;
-            if (!right.isTracked) return;
-            if (!Joint(right, XRHandJointID.Palm, out var palm) || !Joint(right, XRHandJointID.Wrist, out var wrist) ||
-                !Joint(right, XRHandJointID.IndexProximal, out var idxProx) || !Joint(right, XRHandJointID.IndexTip, out var idxTip) ||
-                !Joint(right, XRHandJointID.MiddleProximal, out var midProx)) return;
-
-            // one-handed: barrel follows the knuckle line; two-handed: right grip -> left palm
-            Vector3 fwd = (midProx.position - wrist.position).normalized;
-            Vector3 up = Vector3.up;
-            Vector3 grip = palm.position + (palm.rotation * Vector3.down) * 0.02f;
-            if (left.isTracked && Joint(left, XRHandJointID.Palm, out var lp))
+            if (!body) SetupBody();
+            var mr = GetComponent<MixedReality>();
+            if (!placed && (mr == null || mr.Aligned))
             {
-                var two = lp.position - grip;
-                if (two.magnitude > 0.18f && two.magnitude < 0.75f && Vector3.Dot(two.normalized, fwd) > 0.2f)
-                    fwd = two.normalized;
+                // floating at chest height, an arm's length ahead, barrel pointing away
+                var f = Vector3.ProjectOnPlane(cam.transform.forward, Vector3.up).normalized;
+                rifle.SetPositionAndRotation(cam.transform.position + f * 0.42f + Vector3.down * 0.35f, Quaternion.LookRotation(f));
+                placed = true;
             }
-            var targetRot = Quaternion.LookRotation(fwd, up) * Quaternion.Euler(-recoil * 6f, 0, 0);
-            rifle.rotation = Quaternion.Slerp(rifle.rotation, targetRot, 1f - Mathf.Exp(-Time.deltaTime * 30f));
-            rifle.position = Vector3.SmoothDamp(rifle.position, grip - rifle.forward * recoil * 0.03f, ref rifleVel, 0.012f);
+            if (!placed) return;
 
-            // trigger: index fingertip close to the palm (with hysteresis so one squeeze = one round)
-            float curl = Vector3.Distance(idxTip.position, palm.position);
-            if (!triggerHeld && curl < 0.055f) { triggerHeld = true; Fire(muzzle.position, muzzle.forward); }
-            else if (triggerHeld && curl > 0.072f) triggerHeld = false;
+            UpdateHand(hands.leftHand, grabs[0], grabs[1]);
+            UpdateHand(hands.rightHand, grabs[1], grabs[0]);
+
+            bool held = grabs[0].holding || grabs[1].holding;
+            if (held)
+            {
+                body.isKinematic = true;
+                // primary = the hand on the pistol grip (closest to the grip), the other one steers the barrel
+                int p = grabs[0].holding && grabs[1].holding
+                    ? (grabs[0].localPoint.sqrMagnitude < grabs[1].localPoint.sqrMagnitude ? 0 : 1)
+                    : (grabs[0].holding ? 0 : 1);
+                var hp = p == 0 ? hands.leftHand : hands.rightHand;
+                if (Joint(hp, XRHandJointID.Palm, out var palm))
+                {
+                    var rot = palm.rotation * grabs[p].localRot;
+                    var other = grabs[1 - p];
+                    var ho = p == 0 ? hands.rightHand : hands.leftHand;
+                    if (other.holding && Joint(ho, XRHandJointID.Palm, out var palm2))
+                    {
+                        var have = rot * (other.localPoint - grabs[p].localPoint);
+                        var want = palm2.position - palm.position;
+                        if (want.sqrMagnitude > 0.01f) rot = Quaternion.FromToRotation(have, want) * rot;
+                    }
+                    rot *= Quaternion.Euler(-recoil * 5f, 0, 0);
+                    lastPos = rifle.position;
+                    rifle.rotation = rot;
+                    rifle.position = palm.position - rot * grabs[p].localPoint;
+                }
+            }
+            else if (body.isKinematic && lastPos != Vector3.zero)
+            {
+                // just let go: hand the motion to physics so it drops (or is tossed) for real
+                body.isKinematic = false; body.useGravity = true;
+                body.linearVelocity = (rifle.position - lastPos) / Mathf.Max(Time.deltaTime, 1e-3f);
+                lastPos = Vector3.zero;
+            }
+        }
+
+        void UpdateHand(XRHand hand, Grab g, Grab other)
+        {
+            if (!hand.isTracked) { g.holding = false; return; }
+            if (!Joint(hand, XRHandJointID.Palm, out var palm) || !Joint(hand, XRHandJointID.IndexTip, out var idxTip) ||
+                !Joint(hand, XRHandJointID.IndexProximal, out var idxProx)) return;
+            // fist = middle, ring and little fingertips curled in to the palm
+            float curl = 0; int n = 0;
+            foreach (var id in new[] { XRHandJointID.MiddleTip, XRHandJointID.RingTip, XRHandJointID.LittleTip })
+                if (Joint(hand, id, out var tip)) { curl += Vector3.Distance(tip.position, palm.position); n++; }
+            if (n == 0) return;
+            curl /= n;
+
+            if (!g.holding)
+            {
+                bool near = Vector3.Distance(bodyCol.ClosestPoint(palm.position), palm.position) < 0.09f;
+                if (near && curl < 0.065f)
+                {
+                    g.holding = true;
+                    g.localPoint = rifle.InverseTransformPoint(palm.position);
+                    g.localRot = Quaternion.Inverse(palm.rotation) * rifle.rotation;
+                }
+            }
+            else if (curl > 0.085f) { g.holding = false; g.trigger = false; return; }
+
+            // trigger: only the index finger that is actually on the trigger, squeezed (hysteresis: one squeeze = one round)
+            if (!g.holding) return;
+            bool onTrigger = Vector3.Distance(idxTip.position, rifle.TransformPoint(TriggerLocal)) < 0.07f;
+            float bend = Vector3.Distance(idxTip.position, idxProx.position);
+            if (!g.trigger && onTrigger && bend < 0.05f) { g.trigger = true; Fire(muzzle.position, muzzle.forward); }
+            else if (g.trigger && bend > 0.062f) g.trigger = false;
         }
 
         bool Joint(XRHand hand, XRHandJointID id, out Pose world)

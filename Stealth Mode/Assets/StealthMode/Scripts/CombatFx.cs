@@ -29,17 +29,13 @@ namespace StealthMode
         void Awake()
         {
             inst = this;
-            var unlit = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-            flashMat = Additive(unlit, FlashTexture(), new Color(1f, 0.78f, 0.45f));
-            tracerMat = Additive(unlit, Soft(), new Color(1f, 0.62f, 0.25f));
-            sparkMat = Additive(unlit, Soft(), new Color(1f, 0.7f, 0.35f));
-            dustMat = new Material(unlit);
-            dustMat.SetTexture("_BaseMap", Soft());
-            dustMat.SetColor("_BaseColor", new Color(0.55f, 0.48f, 0.38f, 0.55f));
-            dustMat.SetFloat("_Surface", 1); dustMat.SetFloat("_Blend", 0);
-            dustMat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            dustMat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            dustMat.SetFloat("_ZWrite", 0); dustMat.renderQueue = 3000; dustMat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            // base materials ship in Resources/Fx so the particle shader is in the Quest build (Shader.Find alone gets stripped)
+            var add = Resources.Load<Material>("Fx/FxAdditive") ?? MakeAdditive(Shader.Find(ParticleShader));
+            var alpha = Resources.Load<Material>("Fx/FxAlpha") ?? MakeAlpha(Shader.Find(ParticleShader));
+            flashMat = Tinted(add, FlashTexture(), new Color(1f, 0.78f, 0.45f));
+            tracerMat = Tinted(add, Soft(), new Color(1f, 0.62f, 0.25f));
+            sparkMat = Tinted(add, Soft(), new Color(1f, 0.7f, 0.35f));
+            dustMat = Tinted(alpha, Soft(), new Color(0.55f, 0.48f, 0.38f, 0.55f));
             dust = MakeBurst("Dust", dustMat, 0.5f, 1.2f, 0.15f, 0.55f, 1.8f, false);
             sparks = MakeBurst("Sparks", sparkMat, 0.12f, 0.3f, 0.02f, 0.04f, 7f, true);
             for (int i = 0; i < 24; i++)
@@ -51,15 +47,33 @@ namespace StealthMode
             }
         }
 
-        static Material Additive(Shader s, Texture tex, Color c)
+        public const string ParticleShader = "Universal Render Pipeline/Particles/Unlit";
+
+        public static Material MakeAdditive(Shader s)
         {
             var m = new Material(s);
-            m.SetTexture("_BaseMap", tex); m.SetColor("_BaseColor", c);
             m.SetFloat("_Surface", 1); m.SetFloat("_Blend", 2);
             m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
             m.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
             m.SetFloat("_ZWrite", 0); m.renderQueue = 3100;
             m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT"); m.EnableKeyword("_BLENDMODE_ADD");
+            return m;
+        }
+
+        public static Material MakeAlpha(Shader s)
+        {
+            var m = new Material(s);
+            m.SetFloat("_Surface", 1); m.SetFloat("_Blend", 0);
+            m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            m.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            m.SetFloat("_ZWrite", 0); m.renderQueue = 3000; m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            return m;
+        }
+
+        static Material Tinted(Material baseMat, Texture tex, Color c)
+        {
+            var m = new Material(baseMat);
+            m.SetTexture("_BaseMap", tex); m.SetColor("_BaseColor", c);
             return m;
         }
 

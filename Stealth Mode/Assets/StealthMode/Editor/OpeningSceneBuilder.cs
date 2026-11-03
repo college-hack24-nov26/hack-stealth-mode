@@ -412,6 +412,7 @@ namespace StealthMode.EditorTools
             propRoot = new GameObject("Props").transform;
             natureRoot = new GameObject("Nature").transform;
             Random.InitState(2611);
+            FxMaterials();
 
             Lighting();
 
@@ -444,6 +445,7 @@ namespace StealthMode.EditorTools
             DressNature();
 
             BuildActors();
+            MakeTranslucent();
 
             Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -464,7 +466,7 @@ namespace StealthMode.EditorTools
             var anim = go.GetComponent<Animator>() ?? go.AddComponent<Animator>();
             anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             var lods = go.GetComponentsInChildren<SkinnedMeshRenderer>().OrderBy(r => r.name).ToArray();
-            foreach (var r in lods) { r.updateWhenOffscreen = false; r.shadowCastingMode = ShadowCastingMode.On; r.lightProbeUsage = LightProbeUsage.BlendProbes; }
+            foreach (var r in lods) { r.sharedMesh = CleanWeights(r); r.updateWhenOffscreen = false; r.shadowCastingMode = ShadowCastingMode.On; r.lightProbeUsage = LightProbeUsage.BlendProbes; }
             if (lods.Length >= 2)
             {
                 var lg = go.GetComponent<LODGroup>() ?? go.AddComponent<LODGroup>();
@@ -482,6 +484,131 @@ namespace StealthMode.EditorTools
                 rig.rifle = r.transform;
             }
             return go;
+        }
+
+        // The exported uniform/boots/vest carry index-shifted skin weights (boots bound to finger bones), which only shows
+        // once a soldier leaves the bind pose. Re-skin those parts rigidly to the nearest torso/limb bone segment
+        // (hands excluded; there is no body skin under the clothes to copy from).
+        static readonly (string bone, string to)[] Segments =
+        {
+            ("Hips", "Spine"), ("Hips", "LeftUpLeg"), ("Hips", "RightUpLeg"), ("Spine", "Spine1"), ("Spine1", "Spine2"), ("Spine2", "Neck"), ("Neck", "Head"),
+            ("LeftShoulder", "LeftArm"), ("LeftArm", "LeftForeArm"), ("LeftForeArm", "LeftHand"),
+            ("RightShoulder", "RightArm"), ("RightArm", "RightForeArm"), ("RightForeArm", "RightHand"),
+            ("LeftUpLeg", "LeftLeg"), ("LeftLeg", "LeftFoot"), ("LeftFoot", "LeftToeBase"),
+            ("RightUpLeg", "RightLeg"), ("RightLeg", "RightFoot"), ("RightFoot", "RightToeBase"),
+        };
+
+        static Mesh CleanWeights(SkinnedMeshRenderer r)
+        {
+            var src = r.sharedMesh;
+            var path = $"{CharDir}/Clean/{src.name}_clean.asset";
+            var done = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+            if (done) return done;
+            var mats = r.sharedMaterials;
+            var verts = src.vertices; var weights = src.boneWeights; var bind = src.bindposes;
+            int Index(string b) => System.Array.FindIndex(r.bones, t => t.name.EndsWith(":" + b) || t.name == b);
+            Vector3 Joint(int i) => bind[i].inverse.MultiplyPoint(Vector3.zero);
+            var segs = Segments.Select(s => (i: Index(s.bone), j: Index(s.to))).Where(s => s.i >= 0 && s.j >= 0)
+                               .Select(s => (bone: s.i, a: Joint(s.i), b: Joint(s.j))).ToArray();
+            var fix = new HashSet<int>();
+            for (int sm = 0; sm < src.subMeshCount; sm++)
+            {
+                var n = mats[sm] ? mats[sm].name : "";
+                if (n.StartsWith("uniform") || n.StartsWith("boots") || n.StartsWith("gear")) fix.UnionWith(src.GetTriangles(sm));
+            }
+            foreach (var v in fix)
+            {
+                int best = segs[0].bone; float bd = float.MaxValue;
+                foreach (var s in segs)
+                {
+                    var ab = s.b - s.a;
+                    var p = s.a + ab * Mathf.Clamp01(Vector3.Dot(verts[v] - s.a, ab) / ab.sqrMagnitude);
+                    float d = (verts[v] - p).sqrMagnitude;
+                    if (d < bd) { bd = d; best = s.bone; }
+                }
+                weights[v] = new BoneWeight { boneIndex0 = best, weight0 = 1f };
+            }
+            var mesh = Object.Instantiate(src); mesh.name = src.name;
+            mesh.boneWeights = weights;
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            AssetDatabase.CreateAsset(mesh, path);
+            return mesh;
+        }
+
+        // same as Shadow Batter: the URP renderer needs the AR Background feature for passthrough to composite
+        static void ARBackgroundFeature()
+        {
+            const string path = "Assets/Settings/Mobile_Renderer.asset";
+            var data = AssetDatabase.LoadAssetAtPath<UnityEngine.Rendering.Universal.UniversalRendererData>(path);
+            foreach (var old in data.rendererFeatures.Where(f => f != null && f.name == "Passthrough Fade").ToList())   // earlier fade-pass experiment
+            {
+                data.rendererFeatures.Remove(old);
+                Object.DestroyImmediate(old, true);
+            }
+            var type = System.Type.GetType("UnityEngine.XR.ARFoundation.ARBackgroundRendererFeature, Unity.XR.ARFoundation");
+            if (!data.rendererFeatures.Any(f => f != null && f.GetType() == type))
+            {
+                var feature = (UnityEngine.Rendering.Universal.ScriptableRendererFeature)ScriptableObject.CreateInstance(type);
+                feature.name = "AR Background Renderer Feature";
+                AssetDatabase.AddObjectToAsset(feature, data);
+                data.rendererFeatures.Add(feature);
+            }
+            data.SetDirty();
+            EditorUtility.SetDirty(data);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.ImportAsset(path);
+        }
+
+        // Shadow Batter's way: real transparent URP/Lit materials. Every environment asset (terrain, containers, props, soldiers)
+        // gets a translucent twin (alpha EnvAlpha) as a saved asset, so the shader variant ships in the Quest build.
+        const float EnvAlpha = 0.7f;
+
+        static void MakeTranslucent()
+        {
+            const string dir = Root + "/Materials/MR";
+            Directory.CreateDirectory(dir);
+            var cache = new Dictionary<Material, Material>();
+            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (r is ParticleSystemRenderer || r is LineRenderer || r is TrailRenderer) continue;
+                if (r.GetComponentInParent<Unity.XR.CoreUtils.XROrigin>() != null) continue;   // hands + the Engineer's rifle stay solid
+                var mats = r.sharedMaterials; bool changed = false;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    var m = mats[i];
+                    if (!m || !m.HasProperty("_Surface") || AssetDatabase.GetAssetPath(m).StartsWith(dir)) continue;
+                    if (!cache.TryGetValue(m, out var t)) cache[m] = t = Translucent(m, dir);
+                    mats[i] = t; changed = true;
+                }
+                if (changed) r.sharedMaterials = mats;
+            }
+            AssetDatabase.SaveAssets();
+        }
+
+        static Material Translucent(Material src, string dir)
+        {
+            var path = $"{dir}/{src.name}_mr.mat";
+            var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (!m) { m = new Material(src); AssetDatabase.CreateAsset(m, path); }
+            m.CopyPropertiesFromMaterial(src);
+            bool cutout = src.HasProperty("_AlphaClip") && src.GetFloat("_AlphaClip") > 0.5f;
+            SetSurface(m, Surface.Transparent, src.HasProperty("_Cull") && src.GetFloat("_Cull") == 0);
+            if (cutout) { m.SetFloat("_AlphaClip", 1); m.EnableKeyword("_ALPHATEST_ON"); }
+            m.SetFloat("_ZWrite", 1);   // depth writes keep overlapping surfaces ordered without sorting artefacts
+            m.SetShaderPassEnabled("DepthOnly", true); m.SetShaderPassEnabled("ShadowCaster", true);
+            var c = src.GetColor("_BaseColor"); c.a *= EnvAlpha; m.SetColor("_BaseColor", c);
+            EditorUtility.SetDirty(m);
+            return m;
+        }
+
+        // particle materials as assets in Resources so their shader ships in the build (CombatFx loads them)
+        static void FxMaterials()
+        {
+            var dir = Root + "/Resources/Fx";
+            Directory.CreateDirectory(dir);
+            var shader = Shader.Find(StealthMode.CombatFx.ParticleShader);
+            if (!AssetDatabase.LoadAssetAtPath<Material>(dir + "/FxAdditive.mat")) AssetDatabase.CreateAsset(StealthMode.CombatFx.MakeAdditive(shader), dir + "/FxAdditive.mat");
+            if (!AssetDatabase.LoadAssetAtPath<Material>(dir + "/FxAlpha.mat")) AssetDatabase.CreateAsset(StealthMode.CombatFx.MakeAlpha(shader), dir + "/FxAlpha.mat");
         }
 
         static Transform MuzzleOf(GameObject soldier) =>
@@ -549,7 +676,16 @@ namespace StealthMode.EditorTools
             }
             var pr = origin.AddComponent<StealthMode.PlayerRifle>();
             pr.rifle = rifle.transform; pr.cam = cam; pr.trackingSpace = offset;
-            var radio = camGo.AddComponent<AudioSource>(); radio.spatialBlend = 0; radio.volume = 0.9f; radio.playOnAwake = false;
+            var radio = camGo.AddComponent<AudioSource>(); radio.spatialBlend = 0; radio.volume = 1f; radio.playOnAwake = false;
+
+            // mixed reality: passthrough (AR Foundation camera on Meta OpenXR) behind a 70%-opaque, room-locked scene
+            xo.CameraYOffset = 1.6f;   // only used if the headset has no floor-level space
+            camGo.AddComponent<UnityEngine.XR.ARFoundation.ARCameraManager>();
+            new GameObject("AR Session").AddComponent<UnityEngine.XR.ARFoundation.ARSession>();
+            var mixed = origin.AddComponent<StealthMode.MixedReality>();
+            mixed.cam = cam;
+            camGo.AddComponent<UnityEngine.XR.ARFoundation.ARCameraBackground>();
+            ARBackgroundFeature();
 
             var alarmGo = new GameObject("Warehouse alarm"); alarmGo.transform.position = new Vector3(-2f, 7f, -10.3f);
             var alarm = alarmGo.AddComponent<AudioSource>(); alarm.clip = Resources.Load<AudioClip>("Audio/alarm_siren");

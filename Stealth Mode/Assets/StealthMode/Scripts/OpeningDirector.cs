@@ -134,7 +134,7 @@ namespace StealthMode
                     var from = e.rig.Head.position; var to = head.position;
                     bool blocked = false;
                     foreach (var h in Physics.RaycastAll(from, (to - from).normalized, Vector3.Distance(from, to) - 0.3f, ~0, QueryTriggerInteraction.Ignore))
-                        if (!h.collider.GetComponent<Hitbox>() && !h.collider.transform.IsChildOf(player.transform)) { blocked = true; break; }
+                        if (!h.collider.GetComponent<Hitbox>() && !h.collider.transform.IsChildOf(player.transform) && !h.collider.transform.IsChildOf(player.rifle)) { blocked = true; break; }
                     if (!blocked) { OpeningMetrics.ExposedSeconds += step; break; }
                 }
                 yield return new WaitForSeconds(step);

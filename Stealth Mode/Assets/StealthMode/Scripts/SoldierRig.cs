@@ -25,11 +25,10 @@ namespace StealthMode
         public Transform Chest => chest;
 
         Animator anim;
-        HumanPoseHandler poseHandler;
-        HumanPose pose;
-        Vector3 restBodyPos;
-        Quaternion restBodyRot;
-        readonly Dictionary<string, int> muscle = new Dictionary<string, int>();
+        readonly List<(Transform t, Quaternion q)> rest = new List<(Transform, Quaternion)>();
+        readonly List<(Transform t, Quaternion q)> grip = new List<(Transform, Quaternion)>();
+        Vector3 restHipsLocalPos, restHip, restFootL, restFootR;
+        Transform lThigh, lShin, lFoot, lToe, rThigh, rShin, rFoot, rToe;
         Transform hips, spine, chest, upperChest, neck, head;
         Transform rUpper, rLower, rHand, lUpper, lLower, lHand;
         Transform rIndex, rThumb, lIndex, lThumb;
@@ -41,15 +40,6 @@ namespace StealthMode
         {
             anim = GetComponent<Animator>();
             anim.enabled = false; // poses are written directly
-            poseHandler = new HumanPoseHandler(anim.avatar, transform);
-            // read the rest pose with the root at the origin so body position/rotation are local to the soldier
-            var p0 = transform.position; var r0 = transform.rotation; var par = transform.parent;
-            transform.SetParent(null, false); transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-            poseHandler.GetHumanPose(ref pose);
-            transform.SetParent(par, true); transform.SetPositionAndRotation(p0, r0);
-            restBodyPos = pose.bodyPosition;
-            restBodyRot = pose.bodyRotation;
-            for (int i = 0; i < HumanTrait.MuscleCount; i++) muscle[HumanTrait.MuscleName[i]] = i;
             Transform B(HumanBodyBones b) => anim.GetBoneTransform(b);
             hips = B(HumanBodyBones.Hips); spine = B(HumanBodyBones.Spine); chest = B(HumanBodyBones.Chest);
             upperChest = B(HumanBodyBones.UpperChest); neck = B(HumanBodyBones.Neck); head = B(HumanBodyBones.Head);
@@ -58,9 +48,48 @@ namespace StealthMode
             rIndex = B(HumanBodyBones.RightIndexProximal) ?? B(HumanBodyBones.RightMiddleProximal);
             lIndex = B(HumanBodyBones.LeftIndexProximal) ?? B(HumanBodyBones.LeftMiddleProximal);
             rThumb = B(HumanBodyBones.RightThumbProximal); lThumb = B(HumanBodyBones.LeftThumbProximal);
+            lThigh = B(HumanBodyBones.LeftUpperLeg); lShin = B(HumanBodyBones.LeftLowerLeg); lFoot = B(HumanBodyBones.LeftFoot); lToe = B(HumanBodyBones.LeftToes);
+            rThigh = B(HumanBodyBones.RightUpperLeg); rShin = B(HumanBodyBones.RightLowerLeg); rFoot = B(HumanBodyBones.RightFoot); rToe = B(HumanBodyBones.RightToes);
+
+            // the bind pose (standing) is the reference; every frame starts from it and is posed with IK in the soldier's own frame
+            var rifleRoot = rifle;
+            foreach (var t in GetComponentsInChildren<Transform>(true))
+                if (t != transform && (!rifleRoot || !t.IsChildOf(rifleRoot))) rest.Add((t, t.localRotation));
+            restHipsLocalPos = hips.localPosition;
+            restHip = transform.InverseTransformPoint(hips.position);
+            restFootL = transform.InverseTransformPoint(lFoot.position); restFootR = transform.InverseTransformPoint(rFoot.position);
+            BakeGrip();
             seed = Random.value * 10f;
             BuildHitboxes();
             if (rifle) AttachRifle(rifle);
+        }
+
+        // finger curl for holding a rifle: taken once from the humanoid muscle space, relative to the bind pose
+        void BakeGrip()
+        {
+            if (!anim.avatar || !anim.avatar.isHuman) return;
+            var handler = new HumanPoseHandler(anim.avatar, transform);
+            var p0 = transform.position; var r0 = transform.rotation; var par = transform.parent;
+            transform.SetParent(null, false); transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            var pose = new HumanPose();
+            handler.GetHumanPose(ref pose);
+            for (int i = 0; i < HumanTrait.MuscleCount; i++)
+            {
+                var n = HumanTrait.MuscleName[i];
+                if (!n.Contains(" Stretched")) continue;
+                bool thumb = n.Contains("Thumb"), index1 = n.Contains("Index 1");
+                pose.muscles[i] = Mathf.Clamp(pose.muscles[i] - (thumb ? 0.35f : index1 ? 0.7f : 1.15f), -1f, 1f);
+            }
+            handler.SetHumanPose(ref pose);
+            for (var b = HumanBodyBones.LeftThumbProximal; b <= HumanBodyBones.RightLittleDistal; b++)
+            {
+                var t = anim.GetBoneTransform(b);
+                if (t) grip.Add((t, t.localRotation));
+            }
+            foreach (var (t, q) in rest) t.localRotation = q;
+            hips.localPosition = restHipsLocalPos;
+            transform.SetParent(par, true); transform.SetPositionAndRotation(p0, r0);
+            handler.Dispose();
         }
 
         public void AttachRifle(Transform r)
@@ -77,65 +106,69 @@ namespace StealthMode
             return null;
         }
 
-        void Set(string name, float v) { if (muscle.TryGetValue(name, out var i)) pose.muscles[i] = v; }
-
-        void SetBoth(string part, float v) { Set("Left " + part, v); Set("Right " + part, v); }
-
+        // Stance = hip placement + pelvis/spine pitch + two-bone leg IK to planted feet, all in the soldier's frame
+        // (x right, y up, z forward, metres). Starts from the bind pose every frame so nothing accumulates.
         void ApplyStance()
         {
-            for (int i = 0; i < pose.muscles.Length; i++) pose.muscles[i] = 0f;
-            float t = Time.time + seed;
-            float breath = Mathf.Sin(t * 1.6f) * 0.02f * breathing;
-            Vector3 body = restBodyPos;
-            Quaternion bodyRot = restBodyRot;
-            // relaxed arms (IK overrides them when a rifle is held), curled fingers for the grip
-            SetBoth("Arm Down-Up", -0.4f); SetBoth("Forearm Stretch", 0.2f);
-            foreach (var f in new[] { "Index", "Middle", "Ring", "Little" })
-                for (int k = 1; k <= 3; k++) SetBoth(f + " " + k + " Stretched", f == "Index" && k == 1 ? -0.35f : -0.7f);
-            SetBoth("Thumb 1 Stretched", -0.2f);
-            Set("Chest Front-Back", breath); Set("Spine Front-Back", 0.05f);
+            foreach (var (t, q) in rest) t.localRotation = q;
+            hips.localPosition = restHipsLocalPos;
+            foreach (var (t, q) in grip) t.localRotation = q;
+
+            float breath = Mathf.Sin((Time.time + seed) * 1.6f) * 1.2f * breathing;
+            float ankle = restFootL.y, hipH = restHip.y;
+            Vector3 lf = restFootL, rf = restFootR, lKnee = Vector3.forward, rKnee = Vector3.forward;
+            Vector3 lToeDir = Vector3.zero, rToeDir = Vector3.zero;   // zero = keep the foot as posed
+            float hipY = hipH - 0.02f, hipZ = 0, pelvis = 4, bend = 6, nod = 0;
             switch (stance)
             {
                 case Stance.Stand:
-                    SetBoth("Upper Leg In-Out", 0.15f); Set("Left Upper Leg Front-Back", 0.12f); Set("Right Upper Leg Front-Back", -0.05f);
-                    SetBoth("Lower Leg Stretch", 0.92f); Set("Left Lower Leg Stretch", 0.85f); SetBoth("Foot Up-Down", 0.05f);
-                    Set("Spine Front-Back", 0.12f);
-                    body.y -= 0.03f;
+                    rf += new Vector3(0.03f, 0, -0.14f); lf += new Vector3(-0.03f, 0, 0.06f);
                     break;
-                case Stance.Crouch:
-                    SetBoth("Upper Leg Front-Back", 0.75f); SetBoth("Lower Leg Stretch", -0.55f); SetBoth("Upper Leg In-Out", 0.25f);
-                    SetBoth("Foot Up-Down", 0.4f); Set("Spine Front-Back", 0.35f);
-                    body.y -= 0.42f;
+                case Stance.Crouch:   // low squat behind cover, rear heel raised
+                    hipY = 0.58f; hipZ = -0.08f; pelvis = 28; bend = 14;
+                    lf = new Vector3(-0.17f, ankle, 0.22f); rf = new Vector3(0.17f, ankle + 0.07f, -0.24f);
+                    lKnee = new Vector3(-0.3f, 0, 1); rKnee = new Vector3(0.3f, 0, 1);
+                    lToeDir = new Vector3(0, -0.15f, 1); rToeDir = new Vector3(0, -0.6f, 0.8f);
                     break;
-                case Stance.Kneel:
-                    Set("Left Upper Leg Front-Back", 0.9f); Set("Left Lower Leg Stretch", -0.75f); Set("Left Foot Up-Down", 0.3f);
-                    Set("Right Upper Leg Front-Back", -0.05f); Set("Right Lower Leg Stretch", -1f); Set("Right Foot Up-Down", -0.6f);
-                    SetBoth("Upper Leg In-Out", 0.2f); Set("Spine Front-Back", 0.25f);
-                    body.y -= 0.5f;
+                case Stance.Kneel:    // right knee on the ground, left foot planted forward
+                    hipY = 0.6f; pelvis = 10; bend = 10;
+                    lf = new Vector3(-0.15f, ankle, 0.42f); rf = new Vector3(0.14f, 0.14f, -0.4f);
+                    lKnee = new Vector3(-0.15f, 0.2f, 1); rKnee = new Vector3(0, -1, 0.25f);
+                    lToeDir = new Vector3(0, -0.15f, 1); rToeDir = new Vector3(0, -1f, -0.15f);
                     break;
-                case Stance.Prone:
-                    SetBoth("Upper Leg Front-Back", -0.05f); SetBoth("Lower Leg Stretch", 0.9f); SetBoth("Upper Leg In-Out", 0.4f);
-                    Set("Spine Front-Back", -0.3f); Set("Chest Front-Back", -0.3f); Set("Neck Nod Down-Up", -0.6f); Set("Head Nod Down-Up", -0.5f);
-                    body.y -= 0.8f;
-                    bodyRot = bodyRot * Quaternion.Euler(80f, 0, 0);
+                case Stance.Prone:    // flat on the ground, chest and head raised to the rifle
+                    hipY = 0.17f; hipZ = -0.15f; pelvis = 84; bend = -24; nod = -32;
+                    lf = new Vector3(-0.24f, 0.11f, -1.0f); rf = new Vector3(0.24f, 0.11f, -1.0f);
+                    lKnee = rKnee = Vector3.down;
+                    lToeDir = rToeDir = new Vector3(0, -1, -0.35f);
                     break;
                 case Stance.Run:
                     runPhase += Time.deltaTime * runSpeed * 1.35f;
                     float s = Mathf.Sin(runPhase), c = Mathf.Cos(runPhase);
-                    Set("Left Upper Leg Front-Back", 0.25f + 0.75f * s); Set("Right Upper Leg Front-Back", 0.25f - 0.75f * s);
-                    Set("Left Lower Leg Stretch", 0.2f - 0.9f * Mathf.Max(0, -c)); Set("Right Lower Leg Stretch", 0.2f - 0.9f * Mathf.Max(0, c));
-                    SetBoth("Upper Leg In-Out", 0.1f); Set("Spine Front-Back", 0.45f);
-                    Set("Spine Twist Left-Right", 0.1f * s);
-                    body.y += -0.08f + 0.05f * Mathf.Abs(s);
+                    hipY = hipH - 0.07f + 0.04f * Mathf.Abs(s); pelvis = 16; bend = 8;
+                    lf = new Vector3(-0.1f, ankle + 0.28f * Mathf.Max(0, c), 0.42f * s); rf = new Vector3(0.1f, ankle + 0.28f * Mathf.Max(0, -c), -0.42f * s);
                     break;
             }
-            pose.bodyPosition = body;
-            pose.bodyRotation = bodyRot;
-            // write the pose in the soldier's local frame, then put the root back where it stands
-            var p0 = transform.position; var r0 = transform.rotation;
-            transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-            poseHandler.SetHumanPose(ref pose);
-            transform.SetPositionAndRotation(p0, r0);
+
+            var T = transform;
+            hips.position = T.TransformPoint(new Vector3(restHip.x, hipY, restHip.z + hipZ));
+            hips.rotation = Quaternion.AngleAxis(pelvis, T.right) * hips.rotation;
+            foreach (var b in new[] { spine, chest, upperChest })
+                if (b) b.rotation = Quaternion.AngleAxis(bend / 3f + (b == chest ? breath : 0), T.right) * b.rotation;
+            if (neck && nod != 0) neck.rotation = Quaternion.AngleAxis(nod, T.right) * neck.rotation;
+            Leg(lThigh, lShin, lFoot, lToe, T.TransformPoint(lf), T.TransformDirection(lKnee), lToeDir);
+            Leg(rThigh, rShin, rFoot, rToe, T.TransformPoint(rf), T.TransformDirection(rKnee), rToeDir);
+        }
+
+        void Leg(Transform thigh, Transform shin, Transform foot, Transform toe, Vector3 ankleTarget, Vector3 kneeDir, Vector3 toeDir)
+        {
+            if (!thigh || !shin || !foot) return;
+            var hint = (thigh.position + ankleTarget) * 0.5f + kneeDir.normalized * 0.5f;
+            var footRot = foot.rotation;
+            SolveArm(thigh, shin, foot, ankleTarget, hint);
+            foot.rotation = footRot;   // the IK swings the foot with the shin; keep it as it was, then aim the toes
+            if (toe && toeDir != Vector3.zero)
+                foot.rotation = Quaternion.FromToRotation(toe.position - foot.position, transform.TransformDirection(toeDir)) * foot.rotation;
         }
 
         void LateUpdate()
