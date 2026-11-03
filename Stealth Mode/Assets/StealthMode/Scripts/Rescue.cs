@@ -7,8 +7,9 @@ namespace StealthMode
     /// <summary>
     /// Beat 6: getting Comms out of the open with the left hand. The Engineer holds the left Touch controller too: a small
     /// glove marker shows where his left hand is; it brightens when it is on Comms' vest. Holding the GRIP there takes hold
-    /// of the drag handle at the back of his vest; walking backwards pulls the whole body (heavy, the heels drag in the
-    /// dirt). Letting go of the grip drops him where he is.
+    /// of the drag handle at the back of his vest (the index TRIGGER works too: people press either); walking backwards pulls
+    /// the whole body (heavy, the heels drag in the dirt). Letting go drops him where he is. "On the vest" is forgiving:
+    /// the hand within 30 cm of his torso or head, or 60 cm of the handle.
     /// Editor play-test: `simulate` + simHand / simGrip stand in for the controller.
     /// </summary>
     public class Rescue : MonoBehaviour
@@ -21,11 +22,13 @@ namespace StealthMode
         public bool EverGrabbed { get; private set; }
         public float FirstGrabTime { get; private set; } = -1;
         public int Grabs { get; private set; }
-        public float Moved { get; private set; }          // metres the body has come from where it landed
+        public float Moved { get; private set; }          // metres the body has been pulled from where he was first grabbed
         public Vector3 HandPos { get; private set; }
 
-        const float Reach = 0.45f;
-        InputAction lPos, lTracked, lGrip;
+        const float Reach = 0.3f, HandleReach = 0.6f;
+        InputAction lPos, lTracked, lGrip, lTrigger;
+        Collider[] torso;
+        float nextLog;
         Rigidbody collar, handBody;
         SpringJoint joint;
         Material glove;
@@ -43,12 +46,21 @@ namespace StealthMode
             lPos = new InputAction("Left Grip Position", binding: "<XRController>{LeftHand}/devicePosition", expectedControlType: "Vector3");
             lTracked = new InputAction("Left Tracked", InputActionType.Button, "<XRController>{LeftHand}/isTracked");
             lGrip = new InputAction("Left Grip", InputActionType.Button, "<XRController>{LeftHand}/gripPressed");
-            foreach (var a in new[] { lPos, lTracked, lGrip }) a.Enable();
+            lTrigger = new InputAction("Left Trigger", InputActionType.Button, "<XRController>{LeftHand}/triggerPressed");
+            foreach (var a in new[] { lPos, lTracked, lGrip, lTrigger }) a.Enable();
 
             // the drag handle sits on the back of the vest, between the shoulder blades: the upper-chest body
             foreach (var rb in casualty.GetComponentsInChildren<Rigidbody>())
                 if (collar == null || Vector3.Distance(rb.position, casualty.Chest.position) < Vector3.Distance(collar.position, casualty.Chest.position)) collar = rb;
             start = collar.position;
+            var anim = casualty.GetComponent<Animator>();
+            var parts = new System.Collections.Generic.List<Collider>();
+            foreach (var b in new[] { HumanBodyBones.Hips, HumanBodyBones.Spine, HumanBodyBones.Chest, HumanBodyBones.UpperChest, HumanBodyBones.Neck, HumanBodyBones.Head })
+            {
+                var t = anim ? anim.GetBoneTransform(b) : null;
+                if (t) parts.AddRange(t.GetComponents<Collider>());
+            }
+            torso = parts.ToArray();
 
             var g = GameObject.CreatePrimitive(PrimitiveType.Sphere); Destroy(g.GetComponent<Collider>());
             g.name = "Left hand"; g.transform.SetParent(transform, false); g.transform.localScale = Vector3.one * 0.07f;
@@ -59,7 +71,7 @@ namespace StealthMode
 
         void OnDestroy()
         {
-            foreach (var a in new[] { lPos, lTracked, lGrip }) a?.Dispose();
+            foreach (var a in new[] { lPos, lTracked, lGrip, lTrigger }) a?.Dispose();
             if (joint) Destroy(joint);
             if (glove) Destroy(glove);
         }
@@ -71,7 +83,7 @@ namespace StealthMode
             else if (XRSettings.isDeviceActive)
             {
                 tracked = lTracked.ReadValue<float>() > 0.5f;
-                grip = lGrip.IsPressed();
+                grip = lGrip.IsPressed() || lTrigger.IsPressed();
                 p = cam.transform.parent.TransformPoint(lPos.ReadValue<Vector3>());
             }
             else { tracked = false; grip = false; p = transform.position; }
@@ -80,12 +92,27 @@ namespace StealthMode
             if (!tracked) { if (joint) Drop(); return; }
             HandPos = p;
             handBody.MovePosition(p);
-            bool onVest = Vector3.Distance(p, collar.position) < Reach;
+            bool onVest = OnBody(p);
+            if (Time.time > nextLog)
+            {
+                // what the left hand is doing, once a second, for checking the headset runs (adb logcat -s Unity)
+                nextLog = Time.time + 1f;
+                Debug.Log($"[StealthMode] RESCUE hand tracked={tracked} grip={grip} onVest={onVest} holding={Holding} handle {Vector3.Distance(p, collar.position):0.00} m, moved {Moved:0.00} m" +
+                          (XRSettings.isDeviceActive ? $" (pos via {(lPos.activeControl != null ? lPos.activeControl.device.name : "none")}, {lPos.controls.Count} bound)" : ""));
+            }
             glove.SetColor("_BaseColor", Holding ? new Color(0.45f, 1f, 0.55f, 0.95f) : onVest ? new Color(1f, 0.92f, 0.45f, 0.95f) : new Color(1f, 1f, 1f, 0.55f));
 
             if (grip && !joint && onVest) Grab();
             else if (!grip && joint) Drop();
             var d = collar.position - start; d.y = 0; Moved = d.magnitude;
+        }
+
+        bool OnBody(Vector3 p)
+        {
+            if (Vector3.Distance(p, collar.position) < HandleReach) return true;
+            foreach (var c in torso)
+                if (c && Vector3.Distance(c.ClosestPoint(p), p) < Reach) return true;
+            return false;
         }
 
         void Grab()
@@ -96,7 +123,7 @@ namespace StealthMode
             joint.anchor = Vector3.zero; joint.connectedAnchor = Vector3.zero;
             joint.spring = 6000f; joint.damper = 400f; joint.minDistance = 0; joint.maxDistance = 0.03f;
             Grabs++;
-            if (!EverGrabbed) { EverGrabbed = true; FirstGrabTime = Time.time; }
+            if (!EverGrabbed) { EverGrabbed = true; FirstGrabTime = Time.time; start = collar.position; }   // drag measured from where he was picked up
             HeartLink.Event("drag_start", "engineer", $"{{\"grab\":{Grabs}}}");
             Pulse(0.6f, 0.12f);
         }

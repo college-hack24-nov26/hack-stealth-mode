@@ -89,7 +89,7 @@ namespace StealthMode
         // what the captions add for the person in the headset (the controls), after the words on the radio
         static readonly Dictionary<string, string> CaptionHint = new Dictionary<string, string>
         {
-            ["r23_captain_drag"] = "(put your LEFT hand on his vest, hold the GRIP button, walk backwards)",
+            ["r23_captain_drag"] = "(LEFT controller on his body, hold GRIP or TRIGGER, walk backwards)",
         };
         // Comms' voice in the air (no radio)
         static readonly Dictionary<string, string> AirText = new Dictionary<string, string>
@@ -130,6 +130,13 @@ namespace StealthMode
             // the trap has been there all along, on the line Comms will take when he moves up (beat 5)
             mine = TripMine.Place(CornerSpot + AdvanceDir * WireAt, AdvanceDir, player.cam.transform);
             VoiceActivity.Begin(() => radio.isPlaying || (commsVoice && commsVoice.isPlaying) || Time.time < CombatFx.LoudUntil);
+            if (player.XrActive || UnityEngine.XR.XRSettings.isDeviceActive)
+            {
+                var names = new List<string>();
+                foreach (var dev in UnityEngine.InputSystem.InputSystem.devices)
+                    if (dev is UnityEngine.InputSystem.XR.XRController) names.Add($"{dev.name} [{string.Join(",", dev.usages)}]");
+                Debug.Log("[StealthMode] XR controllers: " + string.Join("; ", names));
+            }
             if (!autoPlay)
             {
                 // script step 1: the briefing film first, on its own trigger press; then the simulation's own start
