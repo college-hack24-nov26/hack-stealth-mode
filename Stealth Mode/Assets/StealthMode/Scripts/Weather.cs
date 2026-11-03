@@ -73,8 +73,8 @@ namespace StealthMode
         {
             if (head && rain) rain.transform.position = head.position + Vector3.up * 7f + head.forward * 1.5f;
             if (rain) emission.rateOverTime = RainRate * intensity;
-            if (ground) ground.volume = 0.75f * intensity;
-            if (steel) steel.volume = intensity;
+            if (ground) ground.volume = 0.75f * RainLevel * intensity;
+            if (steel) steel.volume = RainLevel * intensity;
             float k = intensity;
             FlashLevel = flash;
             if (sun) { sun.intensity = Mathf.Lerp(sunI0, sunI0 * SunStorm, k) + flash * 3f; sun.color = Color.Lerp(Color.Lerp(sunC0, SunStormColor, k), Color.white, flash); }
@@ -85,6 +85,7 @@ namespace StealthMode
         }
 
         float flash;
+        const float RainLevel = 0.35f;                             // rain sound level (Pulin, 4 Nov: 35 % of the first mix)
         public static float FlashLevel { get; private set; }     // lightning right now (0..1): wet steel catches it
 
         // lightning: two or three ragged flickers, then the thunder after the light has crossed the distance

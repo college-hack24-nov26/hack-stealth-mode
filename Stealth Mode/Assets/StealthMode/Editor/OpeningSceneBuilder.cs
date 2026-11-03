@@ -721,7 +721,7 @@ namespace StealthMode.EditorTools
 
             var alarmGo = new GameObject("Warehouse alarm"); alarmGo.transform.position = new Vector3(-2f, 7f, -10.3f);
             var alarm = alarmGo.AddComponent<AudioSource>(); alarm.clip = Resources.Load<AudioClip>("Audio/alarm_siren");
-            alarm.loop = true; alarm.spatialBlend = 1; alarm.minDistance = 15; alarm.maxDistance = 400; alarm.playOnAwake = false; alarm.volume = 0.8f;
+            alarm.loop = true; alarm.spatialBlend = 1; alarm.minDistance = 15; alarm.maxDistance = 400; alarm.playOnAwake = false; alarm.volume = 0.4f;
 
             var dir = new GameObject("Opening Director").AddComponent<StealthMode.OpeningDirector>();
             dir.enemy1 = a1; dir.enemy2 = a2; dir.enemy3 = a3; dir.enemy4 = a4; dir.enemy5 = a5;

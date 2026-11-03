@@ -62,9 +62,6 @@ LINES = [
 AIR = [
     ("v_comms_goodhit", "Good hit.", 182, 1.08),
     ("v_comms_moving", "Moving!", 200, 1.10),
-    ("v_comms_help_1", "Engineer! Help!", 190, 1.12),
-    ("v_comms_help_2", "Engineer, help!", 200, 1.14),
-    ("v_comms_help_3", "Engineer! Help me!", 195, 1.12),
     ("v_comms_thanks", "You got me. Thanks, brother.", 175, 1.08),
 ]
 
@@ -334,12 +331,74 @@ def radio_dead():
     return norm(np.concatenate([np.zeros(int(0.03 * SR), np.float32), click, s.astype(np.float32), click]), 0.8)
 
 
+# Comms after the blast: hurt, winded, scared. Short broken phrases, each a strained call on what breath he has left,
+# gasps in between; the voice shakes (tremolo + pitch wobble) and the words stay clear. Same text in OpeningDirector.HelpText.
+HELP = [
+    ("v_comms_help_1", ["Engineer...", "help!"]),
+    ("v_comms_help_2", ["Help...", "I can't...", "move."]),
+    ("v_comms_help_3", ["Engineer!", "Please...", "help me."]),
+    ("v_comms_help_4", ["My leg...", "help!"]),
+    ("v_comms_help_5", ["I'm hit...", "Engineer..."]),
+]
+
+
+def shaky(x, seed):
+    """Trembling voice: slow uneven pitch wobble, a fast shake in the level, a breathy edge riding the voice."""
+    r = np.random.default_rng(seed)
+    n = len(x); t = np.arange(n) / SR
+    jitter = np.interp(t, np.linspace(0, t[-1] + 1e-3, max(4, int(t[-1] * 9))), r.normal(0, 1, max(4, int(t[-1] * 9))))
+    wobble = 0.011 * np.sin(2 * np.pi * 5.6 * t + r.uniform(0, 6)) + 0.006 * jitter          # pitch, ~1-2 %
+    pos = np.clip(np.cumsum(1 + wobble), 0, n - 1)
+    y = np.interp(pos, np.arange(n), x).astype(np.float32)
+    trem = 1 - 0.32 * (0.5 + 0.5 * np.sin(2 * np.pi * (7.5 + 1.5 * jitter) * t))               # level shake
+    y *= trem.astype(np.float32)
+    level = np.convolve(np.abs(y), np.ones(441) / 441, "same")
+    breath = fft_band(r.normal(0, 1, n).astype(np.float32), 900, 6500) * level * 1.1            # air through the words
+    return y + breath
+
+
+def gasp(seed, dur):
+    """A ragged in-breath between phrases."""
+    r = np.random.default_rng(seed)
+    n = int(dur * SR); t = np.arange(n) / SR
+    shape = np.sin(np.pi * t / dur) ** 1.5 * (1 + 0.4 * np.sin(2 * np.pi * 13 * t))
+    return fft_band(r.normal(0, 1, n).astype(np.float32), 1200, 5200) * shape.astype(np.float32) * 0.17
+
+
+def help_line(parts, seed):
+    out = [np.zeros(int(0.05 * SR), np.float32)]
+    for i, text in enumerate(parts):
+        with tempfile.TemporaryDirectory() as td:
+            aiff = os.path.join(td, "v.aiff"); wav = os.path.join(td, "v.wav")
+            subprocess.run(["say", "-v", "Rishi", "-r", "150", "-o", aiff, text], check=True)
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", aiff, "-af",
+                            f"asetrate=22050*1.12,aresample={SR}", "-ac", "1", wav], check=True)
+            x, _ = read(wav)
+        x = fft_band(norm(x, 0.8), 160, 7000)
+        x = np.tanh(x * 1.6) / np.tanh(1.6)                         # straining, not a full-chest shout
+        x = shaky(x, seed * 10 + i) * (0.95 - 0.12 * i)             # he fades as he runs out of air
+        out.append(x)
+        if i < len(parts) - 1:
+            out.append(np.zeros(int(rng.uniform(0.12, 0.25) * SR), np.float32))
+            out.append(gasp(seed * 10 + i, rng.uniform(0.35, 0.55)))
+            out.append(np.zeros(int(rng.uniform(0.08, 0.18) * SR), np.float32))
+    out.append(gasp(seed * 10 + 9, 0.45))
+    y = np.concatenate(out)
+    return norm(reverb(y, 0.45, 0.15), 0.85)
+
+
+def help_lines():
+    for i, (name, parts) in enumerate(HELP):
+        write(os.path.join(OUT, "Voice", name + ".wav"), help_line(parts, 70 + i)); print("help", name)
+
+
 def beat45():
     for name, who, text in LINES:
         if name[:3] in ("r17", "r18", "r19", "r20", "r21"):
             radio_line(name, who, text); print("radio", name)
     for name, text, rate, pitch in AIR:
         write(os.path.join(OUT, "Voice", name + ".wav"), air_line(name, text, rate, pitch)); print("air", name)
+    help_lines()
     write(os.path.join(OUT, "blast_close.wav"), blast_close())
     write(os.path.join(OUT, "tinnitus.wav"), tinnitus())
     write(os.path.join(OUT, "radio_dead.wav"), radio_dead())
@@ -356,6 +415,8 @@ def main():
         for i in range(1, 4):
             write(os.path.join(OUT, f"thunder_{i}.wav"), thunder(30 + i))
         print("RAIN_DONE"); return
+    if "--help-calls" in sys.argv:   # only Comms' calls for help after the blast
+        help_lines(); return
     if "--air" in sys.argv:     # only (re)make the named air lines, e.g. --air v_comms_thanks
         want = sys.argv[sys.argv.index("--air") + 1].split(",")
         for name, text, rate, pitch in AIR:

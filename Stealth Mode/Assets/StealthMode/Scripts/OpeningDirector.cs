@@ -94,7 +94,7 @@ namespace StealthMode
         // Comms' voice in the air (no radio)
         static readonly Dictionary<string, string> AirText = new Dictionary<string, string>
         {
-            ["v_comms_goodhit"] = "Good hit.", ["v_comms_moving"] = "Moving!", ["v_comms_help"] = "Engineer! Help!",
+            ["v_comms_goodhit"] = "Good hit.", ["v_comms_moving"] = "Moving!",
             ["v_comms_thanks"] = "You got me. Thanks, brother.",
         };
 
@@ -122,6 +122,10 @@ namespace StealthMode
                 commsVoice = comms.Head.gameObject.AddComponent<AudioSource>();
                 commsVoice.spatialBlend = 1; commsVoice.minDistance = 1.2f; commsVoice.maxDistance = 80f; commsVoice.dopplerLevel = 0;
                 commsVoice.rolloffMode = AudioRolloffMode.Logarithmic; commsVoice.playOnAwake = false;
+                // he is the one man the Engineer works beside: drawn solid, not see-through like the rest of the scene
+                foreach (var r in comms.GetComponentsInChildren<Renderer>(true))
+                    foreach (var m in r.materials)
+                        if (m.HasProperty("_BaseColor")) { var c = m.GetColor("_BaseColor"); c.a = 1f; m.SetColor("_BaseColor", c); m.SetFloat("_ZWrite", 1f); }
             }
             // the trap has been there all along, on the line Comms will take when he moves up (beat 5)
             mine = TripMine.Place(CornerSpot + AdvanceDir * WireAt, AdvanceDir, player.cam.transform);
@@ -783,16 +787,25 @@ namespace StealthMode
             return best;
         }
 
+        // his calls for help, broken by gasps (same words as assets_src/tools/gen_audio.py HELP)
+        static readonly string[] HelpText =
+        {
+            "Engineer... help!", "Help... I can't... move.", "Engineer! Please... help me.", "My leg... help!", "I'm hit... Engineer...",
+        };
+
         // Comms on the ground in the open, hurt, lying where the blast put him. He shouts for the Engineer, never on the radio.
         IEnumerator Wounded()
         {
             yield return new WaitForSeconds(1.4f);         // the first shout lands while the ears are still ringing
+            int last = -1;
             while (true)
             {
-                var c = CombatFx.I.Clip("Voice/v_comms_help");
+                int i; do i = Random.Range(0, HelpText.Length); while (i == last && HelpText.Length > 1);
+                last = i;
+                var c = CombatFx.I.Clip("Voice/v_comms_help_" + (i + 1));
                 if (c) { commsVoice.Stop(); commsVoice.clip = c; commsVoice.Play(); }
-                if (!radio.isPlaying) Caption.Show(player.cam.transform, "COMMS (shouting)", "Engineer! Help!", (c ? c.length : 1.5f) + 0.6f);
-                HeartLink.Event("comrade_shout", "communicator", "{\"text\":\"Engineer, help!\"}");
+                if (!radio.isPlaying) Caption.Show(player.cam.transform, "COMMS (wounded)", HelpText[i], (c ? c.length : 1.5f) + 0.6f);
+                HeartLink.Event("comrade_shout", "communicator", $"{{\"text\":{HeartLink.Str(HelpText[i])}}}");
                 yield return new WaitForSeconds((c ? c.length : 1.5f) + Random.Range(2.0f, 3.5f));
             }
         }
