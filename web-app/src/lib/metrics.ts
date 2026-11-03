@@ -43,8 +43,24 @@ export interface Metrics {
     half_recovery_s: number | null; rmssd_base: number | null; rmssd_post: number | null;
     zones: { calm: number; elevated: number; high: number };
   } | null;
+  shotRead: ShotRead | null;
   scores: { decision: number | null; comms: number | null; composure: number | null; marksmanship: number | null; overall: number | null };
 }
+
+/** Why the shots missed: a prediction for the debrief, never a diagnosis. */
+export interface ShotRead {
+  band: "few" | "low" | "below" | "average" | "good";
+  misses: { stressed: boolean | null }[];   // one per missed shot, null = no heart rate at that moment
+  stressed_share: number | null;            // misses taken in the elevated zone or above
+  ranged: number;                           // shots that carry a target distance
+  near: { shots: number; hits: number } | null;
+  far: { shots: number; hits: number } | null;
+  range_drop: number | null;                // (near accuracy - far accuracy) / near accuracy
+  reason: "none" | "stress" | "distance" | "fit" | "unknown";
+}
+
+// Starting values, to tune after more runs. stressBpm matches the "elevated" zone below.
+export const SHOT_READ = { minShots: 20, minPerRange: 10, stressBpm: 15, nearM: 20, stressShare: 0.6, rangeDrop: 0.4 } as const;
 
 const s = (ms: number) => ms / 1000;
 const first = <T,>(xs: T[]) => (xs.length ? xs[0] : undefined);
@@ -237,6 +253,37 @@ export function computeMetrics(rawEvents: SessionEvent[], rawHr: HrSample[], dur
     };
   }
 
+  // ---------------------------------------------------------------- shot read
+  let shotRead: ShotRead | null = null;
+  if (shots.length) {
+    const C = SHOT_READ;
+    const a = hits / shots.length;
+    const band: ShotRead["band"] = shots.length < C.minShots ? "few" : a >= 0.7 ? "good" : a >= 0.5 ? "average" : a >= 0.3 ? "below" : "low";
+    const bpmAt = (t: number) => {
+      let b: HrSample | undefined;
+      for (const x of hr) { if (x.t_ms > t) break; b = x; }
+      return b && t - b.t_ms <= 5000 ? b.bpm : null;
+    };
+    const misses = shots.filter((x) => !x.data.hit).map((x) => {
+      const b = hrOut ? bpmAt(x.t_ms) : null;
+      return { stressed: b == null || !hrOut ? null : b - hrOut.baseline >= C.stressBpm };
+    });
+    const known = misses.filter((x) => x.stressed != null);
+    const stressed_share = known.length ? known.filter((x) => x.stressed).length / known.length : null;
+    const ranged = shots.filter((x) => typeof x.data.target_dist_m === "number");
+    const tally = (xs: SessionEvent[]) => (xs.length >= C.minPerRange ? { shots: xs.length, hits: xs.filter((x) => x.data.hit).length } : null);
+    const near = tally(ranged.filter((x) => (x.data.target_dist_m as number) < C.nearM));
+    const far = tally(ranged.filter((x) => (x.data.target_dist_m as number) >= C.nearM));
+    const range_drop = near && far && near.hits ? (near.hits / near.shots - far.hits / far.shots) / (near.hits / near.shots) : null;
+    let reason: ShotRead["reason"] = "none";
+    if (band === "below" || band === "low") {
+      reason = stressed_share != null && stressed_share >= C.stressShare ? "stress"
+        : stressed_share != null && range_drop != null ? (range_drop >= C.rangeDrop ? "distance" : "fit")
+        : "unknown";
+    }
+    shotRead = { band, misses, stressed_share, ranged: ranged.length, near, far, range_drop, reason };
+  }
+
   // ---------------------------------------------------------------- scores (0–100)
   const kia = !!killed;
   const pct = (v: number | null) => (v == null ? null : Math.round(Math.max(0, Math.min(1, v)) * 100));
@@ -268,7 +315,7 @@ export function computeMetrics(rawEvents: SessionEvent[], rawHr: HrSample[], dur
   if (overall != null && kia) overall = Math.min(overall, 0.4);
 
   return {
-    duration_ms, outcome, kia, phases, incident, fire, comms, hr: hrOut,
+    duration_ms, outcome, kia, phases, incident, fire, comms, hr: hrOut, shotRead,
     scores: { decision: pct(decision), comms: pct(commsScore), composure: pct(composure), marksmanship: pct(marks), overall: pct(overall) },
   };
 }

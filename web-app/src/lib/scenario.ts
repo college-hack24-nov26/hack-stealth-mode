@@ -33,7 +33,8 @@ export const PHASES: Record<PhaseId, string> = {
  *
  * phase          data.id: PhaseId
  * shot           actor engineer. data.hit, data.target (enemy id | null), data.aim_sway_deg,
- *                data.from_cover, data.friendly_risk (muzzle within 3 m / 10° of a teammate)
+ *                data.from_cover, data.friendly_risk (muzzle within 3 m / 10° of a teammate),
+ *                data.target_dist_m? (metres to the target; enables the near-vs-far shot read)
  * enemy_down     data.enemy, by = actor
  * enemy_alert    5th outside enemy escapes and screams
  * enemy_wave     data.count — inside guards rush out

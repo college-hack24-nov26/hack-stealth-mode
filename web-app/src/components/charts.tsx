@@ -216,6 +216,122 @@ export function ShotStrip({ events, m }: { events: SessionEvent[]; m: Metrics })
   );
 }
 
+// ---------------------------------------------------------------- why the shots missed (a prediction, not a diagnosis)
+
+const BAND = {
+  low: ["Low", "var(--bad)"], below: ["Below expected", "var(--warn)"], average: ["Average", "var(--signal)"],
+  good: ["Good", "var(--good)"], few: ["Too few shots", "var(--ink-3)"],
+} as const;
+const BAND_STEPS = [["low", "Low", 30], ["below", "Below", 20], ["average", "Average", 20], ["good", "Good", 30]] as const;
+
+const READ = {
+  none: ["No concern", "Shot accuracy is in the normal range for this drill.", "var(--good)"],
+  few: ["Not enough shots yet", "Fire at least 20 rounds for a reading.", "var(--ink-3)"],
+  stress: ["Stress likely affected focus", "Most misses came while the heart rate was high. Slow the breathing in cover, then run it again.", "var(--bad)"],
+  distance: ["Shots at distance were less accurate", "Near shots landed and far shots didn’t, while calm. Consider an eye check.", "var(--warn)"],
+  fit: ["Check headset fit and glasses", "Calm, and near and far shots missed alike. Adjust the headset and lens spacing, wear glasses if you use them, and practise the controls.", "var(--signal)"],
+  unknown: ["Not enough data to tell why", "Accuracy was low, but heart rate or target distance wasn’t logged for these shots.", "var(--ink-3)"],
+} as const;
+
+/** Rings with hits near the centre and misses outside; positions are a fixed scatter, only the counts are real. */
+function Target({ hits, misses, size, seed, label }: { hits: number; misses: number; size: number; seed: number; label: string }) {
+  let a = seed;
+  const next = () => (a = (a * 16807) % 2147483647) / 2147483647;
+  const dot = (hit: boolean) => {
+    const ang = next() * Math.PI * 2, rad = hit ? Math.sqrt(next()) * 20 : 30 + next() * 15;
+    return [50 + Math.cos(ang) * rad, 50 + Math.sin(ang) * rad] as const;
+  };
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" role="img" aria-label={label}>
+      {[46, 34, 22, 10].map((r, i) => <circle key={r} cx="50" cy="50" r={r} fill={i % 2 ? "var(--raised)" : "var(--raised-2)"} stroke="var(--line-2)" />)}
+      {Array.from({ length: misses }, (_, i) => { const [x, y] = dot(false); return <circle key={`m${i}`} cx={x} cy={y} r="2.6" fill="none" stroke="var(--ink-2)" strokeWidth="1.2" />; })}
+      {Array.from({ length: hits }, (_, i) => { const [x, y] = dot(true); return <circle key={`h${i}`} cx={x} cy={y} r="3" fill="var(--signal)" />; })}
+    </svg>
+  );
+}
+
+function Word({ text, color }: { text: string; color: string }) {
+  return <div className="display" style={{ fontSize: 26, color, marginTop: 10 }}>{text}</div>;
+}
+
+export function ShotRead({ m }: { m: Metrics }) {
+  const r = m.shotRead;
+  if (!r) return <p className="faint" style={{ fontSize: 13, margin: 0 }}>No shots fired this run.</p>;
+  const [bandWord, bandColor] = BAND[r.band];
+  const misses = [...r.misses].sort((x, y) => Number(!!y.stressed) - Number(!!x.stressed));
+  const share = r.stressed_share;
+  const stress = share == null ? null : share >= 0.6 ? ["Mostly under stress", "var(--bad)"] : share >= 0.4 ? ["Mixed", "var(--warn)"] : ["Mostly calm", "var(--good)"];
+  const drop = r.range_drop;
+  const range = drop == null ? null : drop >= 0.4 ? ["Far much worse", "var(--bad)"] : drop >= 0.15 ? ["Far a bit worse", "var(--warn)"] : ["About equal", "var(--good)"];
+  const [title, body, tone] = READ[r.reason === "none" && r.band === "few" ? "few" : r.reason];
+  return (
+    <div>
+      <div className="grid-3">
+        <div>
+          <div className="eyebrow">On target</div>
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}>
+            <Target hits={m.fire.hits} misses={m.fire.shots - m.fire.hits} size={132} seed={7} label={`${m.fire.hits} of ${m.fire.shots} shots on target`} />
+          </div>
+          <Word text={bandWord} color={bandColor} />
+          <div style={{ display: "flex", gap: 3, marginTop: 10 }}>
+            {BAND_STEPS.map(([k, , w]) => <div key={k} style={{ flex: w, height: 8, borderRadius: 2, background: BAND[k][1], opacity: r.band === k ? 1 : 0.22 }} />)}
+          </div>
+          <div style={{ display: "flex", gap: 3, marginTop: 5, fontSize: 11 }} className="mono">
+            {BAND_STEPS.map(([k, label, w]) => <span key={k} style={{ flex: w, color: r.band === k ? "var(--ink)" : "var(--ink-3)" }}>{label}</span>)}
+          </div>
+        </div>
+        <div>
+          <div className="eyebrow">When the shots missed</div>
+          {r.misses.length === 0 ? <p className="faint" style={{ fontSize: 13 }}>No misses.</p>
+            : share == null ? <p className="faint" style={{ fontSize: 13 }}>No heart rate at the moments of the misses.</p>
+            : (
+              <>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 14 }} role="img" aria-label="One dot per missed shot, filled red when the heart rate was high">
+                  {misses.map((x, i) => (
+                    <span key={i} style={{
+                      width: 13, height: 13, borderRadius: "50%",
+                      background: x.stressed ? "var(--bad)" : "transparent",
+                      border: x.stressed ? "none" : `2px solid ${x.stressed === false ? "var(--good)" : "var(--ink-3)"}`,
+                    }} />
+                  ))}
+                </div>
+                {stress && <Word text={stress[0]} color={stress[1]} />}
+                <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: 12 }} className="muted">
+                  <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--bad)" }} />Heart rate high</span>
+                  <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><span style={{ width: 9, height: 9, borderRadius: "50%", border: "2px solid var(--good)" }} />Calm</span>
+                </div>
+              </>
+            )}
+        </div>
+        <div>
+          <div className="eyebrow">Near vs far</div>
+          {r.near && r.far ? (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-around", marginTop: 10 }}>
+                {([["Near", r.near, 3], ["Far", r.far, 5]] as const).map(([label, t, seed]) => (
+                  <div key={label} style={{ textAlign: "center" }}>
+                    <Target hits={t.hits} misses={t.shots - t.hits} size={96} seed={seed} label={`${label}: ${t.hits} of ${t.shots} on target`} />
+                    <div className="eyebrow" style={{ marginTop: 4 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+              {range && <Word text={range[0]} color={range[1]} />}
+            </>
+          ) : <p className="faint" style={{ fontSize: 13 }}>{r.ranged ? "Not enough shots at each distance yet." : "Target distance isn’t logged for these shots yet."}</p>}
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "6px 1fr", gap: 14, marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
+        <span style={{ background: tone, borderRadius: 3 }} />
+        <div>
+          <div style={{ fontWeight: 600 }}>{title}</div>
+          <p className="muted" style={{ margin: "2px 0 0", fontSize: 14 }}>{body}</p>
+          <p className="faint" style={{ margin: "6px 0 0", fontSize: 12 }}>A prediction from this session, not a medical diagnosis.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- overall score across runs
 
 export function Trend({ points }: { points: { score: number | null; failed: boolean; label: string }[] }) {
