@@ -78,7 +78,7 @@ namespace StealthMode
         }
 
         static Texture2D soft;
-        static Texture2D Soft()
+        public static Texture2D Soft()
         {
             if (soft) return soft;
             const int n = 64; soft = new Texture2D(n, n, TextureFormat.RGBA32, true);
@@ -212,10 +212,16 @@ namespace StealthMode
             return arr.Length == 0 ? null : arr[Random.Range(0, arr.Length)];
         }
 
+        /// <summary>Until then a loud sound is going off right at the Engineer (his own shot, Comms' beside him): the mic hears it too.</summary>
+        public static float LoudUntil { get; private set; }
+
         public AudioSource Play(string name, Vector3 pos, float volume = 1f, float minDist = 4f, bool spatial = true)
         {
             var c = Clip(name);
             if (!c) return null;
+            var ears = Camera.main ? Camera.main.transform.position : pos;
+            if (volume > 0.5f && (!spatial || Vector3.Distance(pos, ears) < 6f) && !name.StartsWith("wind"))
+                LoudUntil = Mathf.Max(LoudUntil, Time.time + Mathf.Min(c.length, 0.7f));
             var a = voices.Dequeue(); voices.Enqueue(a);
             a.transform.position = pos; a.clip = c; a.volume = volume; a.minDistance = minDist;
             a.spatialBlend = spatial ? 1 : 0; a.pitch = Random.Range(0.96f, 1.04f);

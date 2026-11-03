@@ -76,6 +76,7 @@ namespace StealthMode
             if (ground) ground.volume = 0.75f * intensity;
             if (steel) steel.volume = intensity;
             float k = intensity;
+            FlashLevel = flash;
             if (sun) { sun.intensity = Mathf.Lerp(sunI0, sunI0 * SunStorm, k) + flash * 3f; sun.color = Color.Lerp(Color.Lerp(sunC0, SunStormColor, k), Color.white, flash); }
             RenderSettings.fogDensity = Mathf.Lerp(fog0, FogStorm, k);
             RenderSettings.fogColor = Color.Lerp(Color.Lerp(fogC0, FogStormColor, k), new Color(0.75f, 0.78f, 0.85f), flash);
@@ -84,6 +85,7 @@ namespace StealthMode
         }
 
         float flash;
+        public static float FlashLevel { get; private set; }     // lightning right now (0..1): wet steel catches it
 
         // lightning: two or three ragged flickers, then the thunder after the light has crossed the distance
         IEnumerator Thunder(float delay, float volume, bool lightning)

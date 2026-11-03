@@ -17,6 +17,7 @@ namespace StealthMode.EditorTools
             "<uses-permission android:name=\"android.permission.BLUETOOTH_SCAN\" android:usesPermissionFlags=\"neverForLocation\" />",
             "<uses-permission android:name=\"android.permission.BLUETOOTH_CONNECT\" />",
             "<uses-feature android:name=\"android.hardware.bluetooth_le\" android:required=\"false\" />",
+            "<uses-permission android:name=\"android.permission.RECORD_AUDIO\" />",   // the Engineer's voice (no push-to-talk)
         };
 
         public void OnPostGenerateGradleAndroidProject(string path)

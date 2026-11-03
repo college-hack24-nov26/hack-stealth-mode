@@ -19,12 +19,25 @@ namespace StealthMode
         public static float StartPressTime = -1, Beat1Time = -1, Beat1ExposedSeconds, RainTime = -1;
         public static string Phase = "gate";
         public static readonly List<Beat> Heart = new List<Beat>();   // live WHOOP, one sample a second
+        public static readonly Dictionary<string, float> ExposedByBeat = new Dictionary<string, float>();
+
+        // beat 4: Engineer and Comms each take one
+        public static float Beat4Time = -1, CommsCornerTime = -1, DesignateTime = -1, EngineerKillTime = -1, KillCallLatency = -1;
+        public static string Designated, EngineerKillTarget;
+        public static bool CommsSecond, MicAvailable;
+        // beat 5: Comms moves up under the Engineer's cover and trips the mine
+        public static float Beat5Time = -1, TripTime = -1, LandingDistance = -1;
+        public static int CoverShots, CoverHits;
+        public static bool VoiceDuringAdvance;
 
         public static void Reset()
         {
             SessionStart = Time.time; MarkTime = FirstShotTime = RunnerInsideTime = EndTime = -1;
             Shots.Clear(); KillTimes.Clear(); KilledBy.Clear(); ExposedSeconds = 0;
-            StartPressTime = Beat1Time = RainTime = -1; Beat1ExposedSeconds = 0; Heart.Clear();
+            StartPressTime = Beat1Time = RainTime = -1; Beat1ExposedSeconds = 0; Heart.Clear(); ExposedByBeat.Clear();
+            Beat4Time = CommsCornerTime = DesignateTime = EngineerKillTime = KillCallLatency = -1;
+            Designated = EngineerKillTarget = null; CommsSecond = MicAvailable = false;
+            Beat5Time = TripTime = LandingDistance = -1; CoverShots = CoverHits = 0; VoiceDuringAdvance = false;
         }
 
         public static void RecordShot(string target, string part, float distance)
@@ -58,7 +71,18 @@ namespace StealthMode
             sb.Append($"  \"accuracy\": {F(Shots.Count == 0 ? -1 : hits / (float)Shots.Count)},\n");
             sb.Append($"  \"exposed_s\": {F(ExposedSeconds)},\n");
             sb.Append($"  \"runner_inside_s\": {F(Rel(RunnerInsideTime))},\n");
-            sb.Append($"  \"beat1_s\": {F(Rel(Beat1Time))},\n  \"beat1_exposed_s\": {F(Beat1ExposedSeconds)},\n  \"rain_s\": {F(Rel(RainTime))},\n  \"kills\": {{");
+            sb.Append($"  \"beat1_s\": {F(Rel(Beat1Time))},\n  \"beat1_exposed_s\": {F(Beat1ExposedSeconds)},\n  \"rain_s\": {F(Rel(RainTime))},\n");
+            sb.Append("  \"exposed_by_beat_s\": {");
+            int j = 0;
+            foreach (var kv in ExposedByBeat) sb.Append($"{(j++ > 0 ? ", " : "")}\"{kv.Key}\": {F(kv.Value)}");
+            sb.Append("},\n");
+            string S(string v) => v == null ? "null" : "\"" + v + "\"";
+            string B(bool v) => v ? "true" : "false";
+            sb.Append($"  \"beat4\": {{\"t\": {F(Rel(Beat4Time))}, \"comms_at_corner_s\": {F(Rel(CommsCornerTime))}, \"designated\": {S(Designated)}, \"designated_s\": {F(Rel(DesignateTime))}, " +
+                      $"\"engineer_kill\": {S(EngineerKillTarget)}, \"engineer_kill_after_call_s\": {F(EngineerKillTime < 0 || DesignateTime < 0 ? -1 : EngineerKillTime - DesignateTime)}, " +
+                      $"\"kill_called_after_s\": {F(KillCallLatency)}, \"mic\": {B(MicAvailable)}, \"comms_took_second\": {B(CommsSecond)}}},\n");
+            sb.Append($"  \"beat5\": {{\"t\": {F(Rel(Beat5Time))}, \"cover_shots\": {CoverShots}, \"cover_hits\": {CoverHits}, \"spoke_during_advance\": {B(VoiceDuringAdvance)}, " +
+                      $"\"trip_s\": {F(Rel(TripTime))}, \"comms_landed_m_from_engineer\": {F(LandingDistance)}}},\n  \"kills\": {{");
             int i = 0;
             foreach (var kv in KillTimes)
                 sb.Append($"{(i++ > 0 ? ", " : "")}\"{kv.Key}\": {{\"t\": {F(Rel(kv.Value))}, \"by\": \"{KilledBy[kv.Key]}\"}}");
