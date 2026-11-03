@@ -10,7 +10,7 @@ namespace StealthMode
     [RequireComponent(typeof(Animator))]
     public class SoldierRig : MonoBehaviour
     {
-        public enum Stance { Stand, Crouch, Kneel, Prone, Run, Patrol }
+        public enum Stance { Stand, Crouch, Kneel, Prone, Run, Patrol, Rush }
 
         public Stance stance = Stance.Stand;
         public Transform rifle;            // rifle root = pistol grip; children "SupportHand", "Stock", "Muzzle"
@@ -153,6 +153,17 @@ namespace StealthMode
                     lKnee = new Vector3(-0.1f, 0, 1); rKnee = new Vector3(0.1f, 0, 1);
                     break;
                 }
+                case Stance.Rush:     // bounding under fire: bent low over the rifle, short quick steps, sights still on the enemy
+                {
+                    float w = 2f * Mathf.PI * (1.45f + 0.05f * runSpeed);
+                    runPhase += Time.deltaTime * w;
+                    float stride = Mathf.Clamp(runSpeed / w, 0.18f, 0.42f), lift = 0.08f + stride * 0.3f;
+                    float s = Mathf.Sin(runPhase), c = Mathf.Cos(runPhase);
+                    hipY = hipH - 0.24f + 0.025f * Mathf.Abs(s); pelvis = 30; bend = 20; hipZ = -0.04f;
+                    lf = new Vector3(-0.13f, ankle + lift * Mathf.Max(0, c), stride * s); rf = new Vector3(0.13f, ankle + lift * Mathf.Max(0, -c), -stride * s);
+                    lKnee = new Vector3(-0.15f, 0, 1); rKnee = new Vector3(0.15f, 0, 1);
+                    break;
+                }
                 case Stance.Run:
                 {
                     // cadence rises a little with speed (~2.8 steps/s jogging, ~3 sprinting) and the foot travel is matched
@@ -222,6 +233,7 @@ namespace StealthMode
                 rifle.rotation = rot;
                 var stockOffset = stock ? rifle.InverseTransformPoint(stock.position) : new Vector3(0, 0.08f, -0.41f);
                 rifle.position = shoulder + rot * (-stockOffset) + rot * sway;
+                if (stance == Stance.Rush) rifle.position += transform.up * 0.012f * Mathf.Sin(runPhase * 2f);
                 if (head && stance != Stance.Patrol)
                 {
                     var look = Quaternion.FromToRotation(head.forward, Vector3.Lerp(head.forward, aimDir, 0.6f));

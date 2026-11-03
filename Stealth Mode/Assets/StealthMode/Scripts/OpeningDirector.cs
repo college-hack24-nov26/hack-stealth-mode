@@ -16,7 +16,8 @@ namespace StealthMode
     /// Beat 3: Sniper-2 takes one more, the storm rolls in, both snipers go blind.
     /// Beat 4: Comms takes the corner of Shipment-1 low, gives the Engineer his man, takes one himself -> three left.
     /// Beat 5: Comms moves up under the Engineer's cover, walks into a trip wire; the mine throws him into the open.
-    /// The run starts only when the Engineer presses the right trigger, so the rifle is already on his controller.
+    /// First the briefing film (Briefing.cs) on its own trigger press, then the run starts only when the Engineer presses the
+    /// right trigger again, so the rifle is already on his controller.
     /// </summary>
     public class OpeningDirector : MonoBehaviour
     {
@@ -89,6 +90,10 @@ namespace StealthMode
             foreach (var e in new[] { enemy1, enemy2, enemy3, enemy4, enemy5 }) e.player = player.cam.transform;
             if (comms)
             {
+                // he is at the west corner of Shipment-1 from the first frame, in front of the Engineer and in his view:
+                // the low man on the corner, nobody appearing from behind his back
+                comms.transform.SetPositionAndRotation(CornerSpot, Quaternion.LookRotation(AdvanceDir));
+                Ground(comms.transform, 0f);
                 comms.stance = SoldierRig.Stance.Kneel; comms.aiming = true; comms.aimPoint = enemy4.transform.position + Vector3.up * 1.2f;
                 // his own voice, in the air where he is (one mouth: a new line cuts the last)
                 commsVoice = comms.Head.gameObject.AddComponent<AudioSource>();
@@ -98,6 +103,16 @@ namespace StealthMode
             // the trap has been there all along, on the line Comms will take when he moves up (beat 5)
             mine = TripMine.Place(CornerSpot + AdvanceDir * WireAt, AdvanceDir, player.cam.transform);
             VoiceActivity.Begin(() => radio.isPlaying || (commsVoice && commsVoice.isPlaying) || Time.time < CombatFx.LoudUntil);
+            if (!autoPlay)
+            {
+                // script step 1: the briefing film first, on its own trigger press; then the simulation's own start
+                player.armed = false;
+                yield return Prompt("Press RIGHT TRIGGER\non your Quest controller\nto start the briefing", "Click or press Space\nto start the briefing");
+                // the start prompt and the wind come up with the compound as the film fades out
+                bool worldBack = false;
+                StartCoroutine(Briefing.Play(player.cam, () => worldBack = true));
+                while (!worldBack) yield return null;
+            }
             CombatFx.I.Play("wind_loop", player.cam.transform.position, 0.35f, 50f, spatial: false).loop = true;
             if (!autoPlay) yield return StartGate();
             HeartLink.StartMission();
@@ -158,9 +173,18 @@ namespace StealthMode
 
         // ---------------------------------------------------------- start gate
         // A plain floating line of text in front of the Engineer; nothing else happens until the right trigger goes down.
+        // Used twice: before the briefing film and before the simulation.
         IEnumerator StartGate()
         {
             player.armed = false;
+            yield return Prompt("Press RIGHT TRIGGER\non your Quest controller\nto start the simulation", "Click or press Space\nto start the simulation");
+            OpeningMetrics.StartPressTime = Time.time;
+            yield return null;          // the press that started the run is not a shot
+            player.armed = true;
+        }
+
+        IEnumerator Prompt(string xrMsg, string desktopMsg)
+        {
             var panel = new GameObject("Start prompt").transform;
             TextMesh Line(string text, Color c, Vector3 offset)
             {
@@ -172,7 +196,7 @@ namespace StealthMode
                 tm.anchor = TextAnchor.MiddleCenter; tm.alignment = TextAlignment.Center; tm.fontStyle = FontStyle.Bold;
                 return tm;
             }
-            var msg = player.XrActive ? "Press RIGHT TRIGGER\non your Quest controller\nto start the simulation" : "Click or press Space\nto start the simulation";
+            var msg = player.XrActive ? xrMsg : desktopMsg;
             Line(msg, new Color(0, 0, 0, 0.85f), new Vector3(0.004f, -0.004f, 0.002f));   // drop shadow, readable over passthrough
             Line(msg, new Color(0.96f, 0.97f, 0.94f), Vector3.zero);
             yield return null;
@@ -188,9 +212,6 @@ namespace StealthMode
                 yield return null;
             }
             Destroy(panel.gameObject);
-            OpeningMetrics.StartPressTime = Time.time;
-            yield return null;          // the press that started the run is not a shot
-            player.armed = true;
         }
 
         // ---------------------------------------------------------- beat 1: they all come out
@@ -250,7 +271,7 @@ namespace StealthMode
         {
             Phase = "beat2_flank";
             // Shipment-1 is between Comms and the yard where he kneels: he runs to its west corner and fights from there
-            if (comms && !comms.Dead) yield return CommsToCorner();
+            if (comms && !comms.Dead && Vector3.Distance(comms.transform.position, CornerSpot) > 0.6f) yield return CommsToCorner();
             StartSuppress(squad);
             yield return Say("r11_comms_backdoor", comms ? comms.Head : null);
             yield return new WaitForSeconds(0.5f);
@@ -370,11 +391,19 @@ namespace StealthMode
         {
             StartCoroutine(Shout("v_comms_moving"));
             yield return new WaitForSeconds(0.3f);
-            yield return RunTo(comms, CornerRoute, 3.4f);
+            yield return RunTo(comms, CornerRoute, 2.6f, SoldierRig.Stance.Rush, () => comms.aimPoint);
             comms.stance = SoldierRig.Stance.Kneel;
             comms.aimPoint = CornerSpot + AdvanceDir * 20f + Vector3.up * 1.2f;
             OpeningMetrics.CommsCornerTime = Time.time;
             yield return new WaitForSeconds(0.3f);
+        }
+
+        static Vector3 NearestThreat(List<EnemyAI> squad, Vector3 from)
+        {
+            EnemyAI best = null; float bd = float.MaxValue;
+            foreach (var e in squad)
+                if (!e.Dead && e.rig.Chest && Vector3.Distance(from, e.rig.Chest.position) < bd) { bd = Vector3.Distance(from, e.rig.Chest.position); best = e; }
+            return best ? best.rig.Chest.position : from + AdvanceDir * 20f + Vector3.up * 1.2f;
         }
 
         static int Alive(List<EnemyAI> squad) { int n = 0; foreach (var e in squad) if (!e.Dead) n++; return n; }
@@ -524,14 +553,18 @@ namespace StealthMode
             if (!comms || comms.Dead || !mine) { EndScript(); yield break; }
             StartSuppress(squad);
             HeartLink.Event("cover_request", "communicator", "{}");
+            int shots0 = OpeningMetrics.Shots.Count; float advance0 = Time.time;
             yield return Say("r21_comms_moving", comms.Head);
             StopSuppress();
-            int shots0 = OpeningMetrics.Shots.Count; float advance0 = Time.time;
+            // "Cover me!" - he goes when the Engineer's covering fire starts (heads down out there), or after ~3 s anyway
+            for (float w = Time.time; Time.time - w < 3f && OpeningMetrics.Shots.Count == shots0;) yield return null;
             StartCoroutine(Shout("v_comms_moving"));
-            yield return new WaitForSeconds(0.3f);
+            yield return new WaitForSeconds(0.25f);
             foreach (var e in squad) if (!e.Dead) e.player = comms.Head;   // he's the one in the open now: they shift onto him
             var from = comms.transform.position;
-            var walking = StartCoroutine(RunTo(comms, new[] { from + AdvanceDir * AdvanceLength }, 3.6f));   // a rush, not a walk
+            // a low bound, sights on the nearest man the whole way, not an upright sprint
+            var walking = StartCoroutine(RunTo(comms, new[] { from + AdvanceDir * AdvanceLength }, 2.7f, SoldierRig.Stance.Rush,
+                () => NearestThreat(squad, comms.transform.position)));
             var prev = from;
             while (true)
             {
@@ -647,9 +680,10 @@ namespace StealthMode
         /// Combat run between covers: a hard first couple of steps off the knee, full pace, braking into the last metre.
         /// The gait (cadence, stride) follows the speed he is actually moving at.
         /// </summary>
-        IEnumerator RunTo(SoldierRig rig, Vector3[] path, float speed)
+        IEnumerator RunTo(SoldierRig rig, Vector3[] path, float speed, SoldierRig.Stance gait = SoldierRig.Stance.Run, System.Func<Vector3> aim = null)
         {
-            rig.stance = SoldierRig.Stance.Run;
+            rig.stance = gait;
+            if (aim != null) rig.aiming = true;
             var t = rig.transform; float t0 = Time.time;
             for (int i = 0; i < path.Length; i++)
             {
@@ -664,6 +698,7 @@ namespace StealthMode
                     if (last) v *= Mathf.Clamp(to.magnitude, 0.45f, 1f);
                     v *= Mathf.Lerp(1f, 0.55f, Mathf.InverseLerp(30f, 100f, Quaternion.Angle(t.rotation, want)));
                     rig.runSpeed = Mathf.Max(v, 1.5f);
+                    if (aim != null) rig.aimPoint = aim();
                     t.position += t.forward * v * Time.deltaTime;
                     Ground(t, path[i].y);
                     yield return null;

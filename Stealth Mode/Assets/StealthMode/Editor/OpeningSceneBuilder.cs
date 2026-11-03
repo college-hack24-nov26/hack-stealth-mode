@@ -669,7 +669,7 @@ namespace StealthMode.EditorTools
             }
 
             // Team Alpha
-            var comms = Soldier("Soldier_IN", "Comms (beside Engineer)", new Vector3(26.1f, 0, -23.25f), -75f, "AK203", squad);
+            var comms = Soldier("Soldier_IN", "Comms (beside Engineer)", new Vector3(22.15f, 0, -23.05f), -56.5f, "AK203", squad);
             var s1 = Soldier("Soldier_IN", "Sniper-1", new Vector3(-55f, 0, 33f), 120f, "AK203", squad);
             var s2 = Soldier("Soldier_IN", "Sniper-2", new Vector3(59f, 0, -45f), -52f, "AK203", squad);
             var cap = Soldier("Soldier_IN", "Captain (backstab route)", new Vector3(-50f, 0, 6f), 80f, "AK203", squad);
