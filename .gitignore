@@ -22,3 +22,9 @@ Stealth Mode/.idea/
 # Python
 __pycache__/
 .venv/
+
+# Generated caches / large downloads (rebuilt by assets_src scripts)
+assets_src/build/exr_cache/
+assets_src/build/gen_tex/
+assets_src/downloads/
+*.blend1

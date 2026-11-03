@@ -1,0 +1,594 @@
+{
+ "container_side": {
+  "ph": "container_side",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/container_side/textures/container_side_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/container_side/textures/container_side_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/container_side/textures/container_side_rough_1k.exr"
+  }
+ },
+ "steel_dark": {
+  "color": [
+   0.09,
+   0.09,
+   0.085
+  ],
+  "metal": 0.8,
+  "smooth": 0.35
+ },
+ "rubber_black": {
+  "color": [
+   0.03,
+   0.03,
+   0.03
+  ],
+  "metal": 0.0,
+  "smooth": 0.2
+ },
+ "rusty_corrugated_iron": {
+  "ph": "rusty_corrugated_iron",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/rusty_corrugated_iron/textures/rusty_corrugated_iron_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/rusty_corrugated_iron/textures/rusty_corrugated_iron_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/rusty_corrugated_iron/textures/rusty_corrugated_iron_rough_1k.exr"
+  }
+ },
+ "corrugated_iron_02": {
+  "ph": "corrugated_iron_02",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/corrugated_iron_02/textures/corrugated_iron_02_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/corrugated_iron_02/textures/corrugated_iron_02_metal_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/corrugated_iron_02/textures/corrugated_iron_02_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/corrugated_iron_02/textures/corrugated_iron_02_rough_1k.exr"
+  }
+ },
+ "concrete_floor_worn_001": {
+  "ph": "concrete_floor_worn_001",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/concrete_floor_worn_001/textures/concrete_floor_worn_001_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/concrete_floor_worn_001/textures/concrete_floor_worn_001_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/concrete_floor_worn_001/textures/concrete_floor_worn_001_rough_1k.jpg"
+  }
+ },
+ "rusty_metal_shutter": {
+  "ph": "rusty_metal_shutter",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/rusty_metal_shutter/textures/rusty_metal_shutter_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/rusty_metal_shutter/textures/rusty_metal_shutter_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/rusty_metal_shutter/textures/rusty_metal_shutter_rough_1k.exr"
+  }
+ },
+ "interior_dark": {
+  "color": [
+   0.02,
+   0.02,
+   0.02
+  ],
+  "metal": 0.0,
+  "smooth": 0.1
+ },
+ "window_dirty": {
+  "color": [
+   0.05,
+   0.055,
+   0.06
+  ],
+  "metal": 0.0,
+  "smooth": 0.75
+ },
+ "green_metal_rust": {
+  "ph": "green_metal_rust",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/green_metal_rust/textures/green_metal_rust_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/green_metal_rust/textures/green_metal_rust_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/green_metal_rust/textures/green_metal_rust_rough_1k.jpg"
+  }
+ },
+ "weathered_planks": {
+  "ph": "weathered_planks",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/weathered_planks/textures/weathered_planks_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/weathered_planks/textures/weathered_planks_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/weathered_planks/textures/weathered_planks_rough_1k.exr"
+  }
+ },
+ "gravel_ground_01": {
+  "ph": "gravel_ground_01",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/gravel_ground_01/textures/gravel_ground_01_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/gravel_ground_01/textures/gravel_ground_01_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/gravel_ground_01/textures/gravel_ground_01_rough_1k.jpg"
+  }
+ },
+ "dry_ground_rocks": {
+  "ph": "dry_ground_rocks",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/dry_ground_rocks/textures/dry_ground_rocks_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/dry_ground_rocks/textures/dry_ground_rocks_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/dry_ground_rocks/textures/dry_ground_rocks_rough_1k.jpg"
+  }
+ },
+ "dry_mud_field_001": {
+  "ph": "dry_mud_field_001",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/dry_mud_field_001/textures/dry_mud_field_001_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/dry_mud_field_001/textures/dry_mud_field_001_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/dry_mud_field_001/textures/dry_mud_field_001_rough_1k.jpg"
+  }
+ },
+ "sparse_grass": {
+  "ph": "sparse_grass",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/sparse_grass/textures/sparse_grass_diff_1k.jpg",
+   "mask": "/Users/pulin_pc/Documents/Poly Haven Assets/sparse_grass/textures/sparse_grass_mask_1k.png",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/sparse_grass/textures/sparse_grass_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/sparse_grass/textures/sparse_grass_rough_1k.exr"
+  }
+ },
+ "wooden_military_crate": {
+  "ph": "wooden_military_crate",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/wooden_military_crate/textures/wooden_military_crate_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/wooden_military_crate/textures/wooden_military_crate_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/wooden_military_crate/textures/wooden_military_crate_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/wooden_military_crate/textures/wooden_military_crate_nor_gl_1k.exr"
+  }
+ },
+ "military_crate_m_01": {
+  "ph": "old_military_crate",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_crate/textures/old_military_crate_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_crate/textures/old_military_crate_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_crate/textures/old_military_crate_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_crate/textures/old_military_crate_nor_gl_1k.exr"
+  }
+ },
+ "ammo_box": {
+  "ph": "ammo_box",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/ammo_box/textures/ammo_box_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/ammo_box/textures/ammo_box_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/ammo_box/textures/ammo_box_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/ammo_box/textures/ammo_box_nor_gl_1k.exr"
+  }
+ },
+ "Barrel_01": {
+  "ph": "Barrel_01",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/Barrel_01/textures/Barrel_01_explosive_diff_1k.png",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/Barrel_01/textures/Barrel_01_explosive_nor_gl_1k.png"
+  }
+ },
+ "Barrel_02": {
+  "ph": "Barrel_02",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/Barrel_02/textures/Barrel_02_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/Barrel_02/textures/Barrel_02_nor_gl_1k.exr"
+  }
+ },
+ "barrel_03": {
+  "ph": "barrel_03",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/barrel_03/textures/barrel_03_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/barrel_03/textures/barrel_03_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/barrel_03/textures/barrel_03_rough_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/barrel_03/textures/barrel_03_nor_gl_1k.exr"
+  }
+ },
+ "metal_jerrycan_green": {
+  "ph": "metal_jerrycan_green",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_jerrycan_green/textures/metal_jerrycan_green_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_jerrycan_green/textures/metal_jerrycan_green_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_jerrycan_green/textures/metal_jerrycan_green_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_jerrycan_green/textures/metal_jerrycan_green_nor_gl_1k.exr"
+  }
+ },
+ "tire_r13_01": {
+  "ph": "old_tyre",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/old_tyre/textures/old_tyre_diff_1k.jpg",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/old_tyre/textures/old_tyre_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/old_tyre/textures/old_tyre_nor_gl_1k.exr"
+  }
+ },
+ "portable_generator": {
+  "ph": "portable_generator",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_generator/textures/portable_generator_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_generator/textures/portable_generator_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_generator/textures/portable_generator_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_generator/textures/portable_generator_nor_gl_1k.exr",
+   "spec": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_generator/textures/portable_generator_spec_1k.png"
+  }
+ },
+ "portable_generator_glass": {
+  "ph": "portable_generator",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_generator/textures/portable_generator_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_generator/textures/portable_generator_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_generator/textures/portable_generator_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_generator/textures/portable_generator_nor_gl_1k.exr",
+   "alpha": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_generator/textures/portable_generator_alpha_1k.png"
+  }
+ },
+ "portable_searchlight": {
+  "ph": "portable_searchlight",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_searchlight/textures/portable_searchlight_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_searchlight/textures/portable_searchlight_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_searchlight/textures/portable_searchlight_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_searchlight/textures/portable_searchlight_nor_gl_1k.exr"
+  }
+ },
+ "portable_searchlight_glass": {
+  "ph": "portable_searchlight",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_searchlight/textures/portable_searchlight_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_searchlight/textures/portable_searchlight_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_searchlight/textures/portable_searchlight_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_searchlight/textures/portable_searchlight_nor_gl_1k.exr",
+   "alpha": "/Users/pulin_pc/Documents/Poly Haven Assets/portable_searchlight/textures/portable_searchlight_alpha_1k.png"
+  }
+ },
+ "concrete_road_barrier": {
+  "ph": "concrete_road_barrier",
+  "files": {
+   "disp": "/Users/pulin_pc/Documents/Poly Haven Assets/concrete_road_barrier/textures/concrete_road_barrier_disp_1k.png",
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/concrete_road_barrier/textures/concrete_road_barrier_diff_1k.jpg",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/concrete_road_barrier/textures/concrete_road_barrier_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/concrete_road_barrier/textures/concrete_road_barrier_nor_gl_1k.exr"
+  }
+ },
+ "security_light": {
+  "ph": "security_light",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_nor_gl_1k.exr"
+  }
+ },
+ "security_light_bulb": {
+  "ph": "security_light",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_nor_gl_1k.exr"
+  }
+ },
+ "security_light_glass": {
+  "ph": "security_light",
+  "files": {
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_nor_gl_1k.exr",
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_diff_1k.jpg",
+   "alpha": "/Users/pulin_pc/Documents/Poly Haven Assets/security_light/textures/security_light_alpha_1k.png"
+  }
+ },
+ "propane_tank": {
+  "ph": "propane_tank",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/propane_tank/textures/propane_tank_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/propane_tank/textures/propane_tank_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/propane_tank/textures/propane_tank_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/propane_tank/textures/propane_tank_nor_gl_1k.exr"
+  }
+ },
+ "plastic_crate_01": {
+  "ph": "plastic_crate_01",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/plastic_crate_01/textures/plastic_crate_01_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/plastic_crate_01/textures/plastic_crate_01_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/plastic_crate_01/textures/plastic_crate_01_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/plastic_crate_01/textures/plastic_crate_01_nor_gl_1k.exr"
+  }
+ },
+ "industrial_pastic_container": {
+  "ph": "industrial_pastic_container",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/industrial_pastic_container/textures/industrial_pastic_container_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/industrial_pastic_container/textures/industrial_pastic_container_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/industrial_pastic_container/textures/industrial_pastic_container_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/industrial_pastic_container/textures/industrial_pastic_container_nor_gl_1k.exr"
+  }
+ },
+ "cement_bag": {
+  "ph": "cement_bag",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/cement_bag/textures/cement_bag_diff_1k.jpg",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/cement_bag/textures/cement_bag_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/cement_bag/textures/cement_bag_nor_gl_1k.exr"
+  }
+ },
+ "wooden_crate_02": {
+  "ph": "wooden_crate_02",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/wooden_crate_02/textures/wooden_crate_02_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/wooden_crate_02/textures/wooden_crate_02_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/wooden_crate_02/textures/wooden_crate_02_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/wooden_crate_02/textures/wooden_crate_02_nor_gl_1k.exr"
+  }
+ },
+ "steel_frame_shelves_01": {
+  "ph": "steel_frame_shelves_01",
+  "files": {
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/steel_frame_shelves_01/textures/steel_frame_shelves_01_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/steel_frame_shelves_01/textures/steel_frame_shelves_01_nor_gl_1k.exr",
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/steel_frame_shelves_01/textures/steel_frame_shelves_01_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/steel_frame_shelves_01/textures/steel_frame_shelves_01_metal_1k.exr"
+  }
+ },
+ "hanging_industrial_lamp": {
+  "ph": "hanging_industrial_lamp",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/hanging_industrial_lamp/textures/hanging_industrial_lamp_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/hanging_industrial_lamp/textures/hanging_industrial_lamp_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/hanging_industrial_lamp/textures/hanging_industrial_lamp_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/hanging_industrial_lamp/textures/hanging_industrial_lamp_nor_gl_1k.exr"
+  }
+ },
+ "hanging_industrial_lamp_glass": {
+  "ph": "hanging_industrial_lamp",
+  "files": {
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/hanging_industrial_lamp/textures/hanging_industrial_lamp_glass_nor_gl_1k.png"
+  }
+ },
+ "old_military_compressor": {
+  "ph": "old_military_compressor",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_compressor/textures/old_military_compressor_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_compressor/textures/old_military_compressor_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_compressor/textures/old_military_compressor_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_compressor/textures/old_military_compressor_nor_gl_1k.exr"
+  }
+ },
+ "old_military_compressor_glass": {
+  "ph": "old_military_compressor",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_compressor/textures/old_military_compressor_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_compressor/textures/old_military_compressor_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_compressor/textures/old_military_compressor_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_compressor/textures/old_military_compressor_nor_gl_1k.exr",
+   "alpha": "/Users/pulin_pc/Documents/Poly Haven Assets/old_military_compressor/textures/old_military_compressor_alpha_1k.png"
+  }
+ },
+ "metal_trash_can_rust": {
+  "ph": "metal_trash_can",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_trash_can/textures/metal_trash_can_rust_diff_1k.png",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_trash_can/textures/metal_trash_can_rust_metal_1k.png",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_trash_can/textures/metal_trash_can_rust_rough_1k.png",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_trash_can/textures/metal_trash_can_rust_nor_gl_1k.png"
+  }
+ },
+ "metal_trash_can": {
+  "ph": "metal_trash_can",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_trash_can/textures/metal_trash_can_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_trash_can/textures/metal_trash_can_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_trash_can/textures/metal_trash_can_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/metal_trash_can/textures/metal_trash_can_nor_gl_1k.exr"
+  }
+ },
+ "dead_tree_trunk": {
+  "ph": "dead_tree_trunk",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/dead_tree_trunk/textures/dead_tree_trunk_diff_1k.jpg",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/dead_tree_trunk/textures/dead_tree_trunk_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/dead_tree_trunk/textures/dead_tree_trunk_nor_gl_1k.exr"
+  }
+ },
+ "dead_tree_trunk_02": {
+  "ph": "dead_tree_trunk_02",
+  "files": {
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/dead_tree_trunk_02/textures/dead_tree_trunk_02_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/dead_tree_trunk_02/textures/dead_tree_trunk_02_nor_gl_1k.exr",
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/dead_tree_trunk_02/textures/dead_tree_trunk_02_diff_1k.jpg"
+  }
+ },
+ "boulder_01": {
+  "ph": "boulder_01",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/boulder_01/textures/boulder_01_diff_1k.jpg",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/boulder_01/textures/boulder_01_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/boulder_01/textures/boulder_01_nor_gl_1k.exr"
+  }
+ },
+ "namaqualand_boulder_02": {
+  "ph": "namaqualand_boulder_02",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/namaqualand_boulder_02/textures/namaqualand_boulder_02_diff_1k.jpg",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/namaqualand_boulder_02/textures/namaqualand_boulder_02_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/namaqualand_boulder_02/textures/namaqualand_boulder_02_nor_gl_1k.exr"
+  }
+ },
+ "namaqualand_boulder_03": {
+  "ph": "namaqualand_boulder_03",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/namaqualand_boulder_03/textures/namaqualand_boulder_03_diff_1k.jpg",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/namaqualand_boulder_03/textures/namaqualand_boulder_03_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/namaqualand_boulder_03/textures/namaqualand_boulder_03_nor_gl_1k.exr"
+  }
+ },
+ "namaqualand_boulder_05": {
+  "ph": "namaqualand_boulder_05",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/namaqualand_boulder_05/textures/namaqualand_boulder_05_diff_1k.jpg",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/namaqualand_boulder_05/textures/namaqualand_boulder_05_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/namaqualand_boulder_05/textures/namaqualand_boulder_05_nor_gl_1k.exr"
+  }
+ },
+ "shrub_01": {
+  "ph": "shrub_01",
+  "files": {
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_01/textures/shrub_01_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_01/textures/shrub_01_nor_gl_1k.exr",
+   "alpha": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_01/textures/shrub_01_alpha_1k.png",
+   "disp": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_01/textures/shrub_01_disp_1k.png",
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_01/textures/shrub_01_diff_1k.jpg"
+  }
+ },
+ "shrub_02": {
+  "ph": "shrub_02",
+  "files": {
+   "alpha": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_02/textures/shrub_02_alpha_1k.png",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_02/textures/shrub_02_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_02/textures/shrub_02_rough_1k.exr",
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_02/textures/shrub_02_diff_1k.jpg",
+   "mask": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_02/textures/shrub_02_mask_1k.png"
+  }
+ },
+ "shrub_03": {
+  "ph": "shrub_03",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_03/textures/shrub_03_diff_1k.jpg",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_03/textures/shrub_03_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_03/textures/shrub_03_nor_gl_1k.exr",
+   "alpha": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_03/textures/shrub_03_alpha_1k.png"
+  }
+ },
+ "shrub_04": {
+  "ph": "shrub_04",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_04/textures/shrub_04_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_04/textures/shrub_04_nor_gl_1k.exr",
+   "alpha": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_04/textures/shrub_04_alpha_1k.png",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_04/textures/shrub_04_rough_1k.exr",
+   "mask": "/Users/pulin_pc/Documents/Poly Haven Assets/shrub_04/textures/shrub_04_mask_1k.png"
+  }
+ },
+ "bolt_action_rifle_7_62_accesories": {
+  "ph": "bolt_action_rifle_7_62",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_accesories_diff_1k.png",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_accesories_metal_1k.png",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_accesories_rough_1k.png",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_accesories_nor_gl_1k.png"
+  }
+ },
+ "bolt_action_rifle_7_62": {
+  "ph": "bolt_action_rifle_7_62",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_diff_1k.jpg",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_metal_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_rough_1k.exr",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_nor_gl_1k.exr"
+  }
+ },
+ "bolt_action_rifle_7_62_accesories_glass": {
+  "ph": "bolt_action_rifle_7_62",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_accesories_diff_1k.png",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_accesories_metal_1k.png",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_accesories_rough_1k.png",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_accesories_nor_gl_1k.png",
+   "alpha": "/Users/pulin_pc/Documents/Poly Haven Assets/bolt_action_rifle_7_62/textures/bolt_action_rifle_7_62_accesories_alpha_1k.png"
+  }
+ },
+ "modular_chainlink_fence_posts": {
+  "ph": "modular_chainlink_fence",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/modular_chainlink_fence/textures/modular_chainlink_fence_posts_diff_1k.png",
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/modular_chainlink_fence/textures/modular_chainlink_fence_posts_metal_1k.png",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/modular_chainlink_fence/textures/modular_chainlink_fence_posts_rough_1k.png",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/modular_chainlink_fence/textures/modular_chainlink_fence_posts_nor_gl_1k.png"
+  }
+ },
+ "modular_chainlink_fence_wire": {
+  "ph": "modular_chainlink_fence",
+  "files": {
+   "metal": "/Users/pulin_pc/Documents/Poly Haven Assets/modular_chainlink_fence/textures/modular_chainlink_fence_wire_metal_1k.png",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/modular_chainlink_fence/textures/modular_chainlink_fence_wire_nor_gl_1k.png",
+   "alpha": "/Users/pulin_pc/Documents/Poly Haven Assets/modular_chainlink_fence/textures/modular_chainlink_fence_wire_alpha_1k.png",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/modular_chainlink_fence/textures/modular_chainlink_fence_wire_rough_1k.png",
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/modular_chainlink_fence/textures/modular_chainlink_fence_wire_diff_1k.png"
+  }
+ },
+ "rifle_metal": {
+  "ph": "blue_metal_plate",
+  "gray": true,
+  "tint": [
+   0.1,
+   0.1,
+   0.105
+  ],
+  "metal": 0.55,
+  "smooth_scale": 0.72,
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/blue_metal_plate/textures/blue_metal_plate_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/blue_metal_plate/textures/blue_metal_plate_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/blue_metal_plate/textures/blue_metal_plate_rough_1k.exr"
+  }
+ },
+ "rifle_polymer": {
+  "gen": "polymer",
+  "tint": [
+   1,
+   1,
+   1
+  ],
+  "files": {
+   "diff": "/Users/pulin_pc/Desktop/Hackathon 2K26 - Progress/assets_src/build/gen_tex/polymer_diff.png",
+   "nor_gl": "/Users/pulin_pc/Desktop/Hackathon 2K26 - Progress/assets_src/build/gen_tex/polymer_nor.png",
+   "rough": "/Users/pulin_pc/Desktop/Hackathon 2K26 - Progress/assets_src/build/gen_tex/polymer_rough.png"
+  }
+ },
+ "rifle_rubber": {
+  "color": [
+   0.02,
+   0.02,
+   0.02
+  ],
+  "metal": 0.0,
+  "smooth": 0.15
+ },
+ "rifle_wood": {
+  "ph": "fine_grained_wood",
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/fine_grained_wood/textures/fine_grained_wood_col_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/fine_grained_wood/textures/fine_grained_wood_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/fine_grained_wood/textures/fine_grained_wood_rough_1k.jpg"
+  }
+ },
+ "rifle_bore": {
+  "color": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "metal": 0.0,
+  "smooth": 0.0
+ },
+ "rifle_metal_edge": {
+  "ph": "blue_metal_plate",
+  "gray": true,
+  "tint": [
+   0.32,
+   0.32,
+   0.33
+  ],
+  "metal": 0.9,
+  "smooth_scale": 0.95,
+  "files": {
+   "diff": "/Users/pulin_pc/Documents/Poly Haven Assets/blue_metal_plate/textures/blue_metal_plate_diff_1k.jpg",
+   "nor_gl": "/Users/pulin_pc/Documents/Poly Haven Assets/blue_metal_plate/textures/blue_metal_plate_nor_gl_1k.exr",
+   "rough": "/Users/pulin_pc/Documents/Poly Haven Assets/blue_metal_plate/textures/blue_metal_plate_rough_1k.exr"
+  }
+ },
+ "rifle_polymer_edge": {
+  "gen": "polymer",
+  "tint": [
+   1.7,
+   1.7,
+   1.7
+  ],
+  "files": {
+   "diff": "/Users/pulin_pc/Desktop/Hackathon 2K26 - Progress/assets_src/build/gen_tex/polymer_diff.png",
+   "nor_gl": "/Users/pulin_pc/Desktop/Hackathon 2K26 - Progress/assets_src/build/gen_tex/polymer_nor.png",
+   "rough": "/Users/pulin_pc/Desktop/Hackathon 2K26 - Progress/assets_src/build/gen_tex/polymer_rough.png"
+  }
+ }
+}
