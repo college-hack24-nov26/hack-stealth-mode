@@ -167,7 +167,7 @@ def ak(name, wood):
     p.box(-0.005, 0.105, -0.025, -0.019, 0.012, "rifle_metal", bevel=0.001)
     p.box(-0.01, -0.003, -0.025, 0.025, 0.012, "rifle_metal", bevel=0.001)
     p.box(0.035, 0.042, -0.012, 0.026, 0.006, "rifle_metal", bevel=0.0, rot=-10)
-    p.box(-0.055, -0.02, -0.10, 0.03, 0.03, furn, bevel=0.009, rot=-18, pivot=(-0.035, 0.03, 0))
+    p.box(-0.055, -0.02, -0.10, 0.03, 0.03, furn, bevel=0.009, rot=18, pivot=(-0.035, 0.03, 0))  # raked 18 deg: bottom of the grip sits behind the top, as on a real AK
     p.box(-0.06, 0.10, 0.06, 0.068, 0.004, "rifle_metal", bevel=0.0, s=0.025)
     p.cyl(0.12, 0.13, 0.095, 0.0055, "rifle_metal", seg=8, s=0.034)
     p.box(0.122, 0.128, 0.09, 0.10, 0.02, "rifle_metal", bevel=0.001, s=0.032)
