@@ -4,13 +4,20 @@ using UnityEditor.Android;
 namespace StealthMode.EditorTools
 {
     /// <summary>
-    /// Quest build: passthrough + boundaryless (no guardian / floor setup prompts; the app shows the real room itself).
+    /// Quest build: passthrough + boundaryless (no guardian / floor setup prompts; the app shows the real room itself),
+    /// and Bluetooth LE (the link to the Mac relay): scan + connect, no location needed.
     /// </summary>
     public class QuestManifest : IPostGenerateGradleAndroidProject
     {
         public int callbackOrder => 999;
 
         static readonly string[] Features = { "com.oculus.feature.PASSTHROUGH", "com.oculus.feature.BOUNDARYLESS_APP" };
+        static readonly string[] Permissions =
+        {
+            "<uses-permission android:name=\"android.permission.BLUETOOTH_SCAN\" android:usesPermissionFlags=\"neverForLocation\" />",
+            "<uses-permission android:name=\"android.permission.BLUETOOTH_CONNECT\" />",
+            "<uses-feature android:name=\"android.hardware.bluetooth_le\" android:required=\"false\" />",
+        };
 
         public void OnPostGenerateGradleAndroidProject(string path)
         {
@@ -20,6 +27,9 @@ namespace StealthMode.EditorTools
             foreach (var f in Features)
                 if (!xml.Contains(f))
                     xml = xml.Replace("</manifest>", $"  <uses-feature android:name=\"{f}\" android:required=\"true\" />\n</manifest>");
+            foreach (var p in Permissions)
+                if (!xml.Contains(p.Split('"')[1]))
+                    xml = xml.Replace("</manifest>", $"  {p}\n</manifest>");
             File.WriteAllText(file, xml);
         }
     }
