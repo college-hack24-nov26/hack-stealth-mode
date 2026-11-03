@@ -7,7 +7,7 @@ import { getBundle, subscribe, type Bundle } from "@/lib/data";
 import { computeMetrics } from "@/lib/metrics";
 import { PHASES, TEAM, type SessionEvent } from "@/lib/scenario";
 import { clock, pct, secs, toneLow, toneScore, when } from "@/lib/format";
-import { HrChart, IncidentTimeline, ShotStrip } from "@/components/charts";
+import { HrChart, IncidentTimeline, ShotRead, ShotStrip } from "@/components/charts";
 import { OutcomePill, RadioLog, ScoreBadge, ScoreRows, ScriptChecks, Stat, verdict, ZoneBar } from "@/components/debrief";
 import { Empty, Loading } from "@/components/states";
 
@@ -190,6 +190,15 @@ function Debrief() {
           </div>
         </section>
       </div>
+
+      {/* ------------------------------------------------ why the shots missed */}
+      <section className="section">
+        <div className="section-head">
+          <h2 className="display section-title" style={{ margin: 0 }}>Shot accuracy</h2>
+          <span className="section-note">a prediction, not a diagnosis</span>
+        </div>
+        <div className="card"><ShotRead m={m} /></div>
+      </section>
 
       {/* ------------------------------------------------ raw log */}
       <section className="section">

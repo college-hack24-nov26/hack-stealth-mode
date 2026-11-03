@@ -23,6 +23,7 @@ function rng(seed: number) {
 
 export function simulate(p: Persona): { events: SessionEvent[]; hr: HrSample[]; duration_ms: number; outcome: "success" | "failed" } {
   const r = rng(p.seed);
+  const rd = rng(p.seed ^ 0x9e3779b9); // target distances on their own stream, so the rest of the run is unchanged
   const jitter = (base: number, spread: number) => base + (r() - 0.5) * 2 * spread;
   const lerp = (green: number, vet: number) => green + (vet - green) * p.skill;
   const ev: SessionEvent[] = [];
@@ -44,6 +45,7 @@ export function simulate(p: Persona): { events: SessionEvent[]; hr: HrSample[]; 
       aim_sway_deg: +Math.max(0.3, jitter(lerp(3.6, 1.0), 0.6)).toFixed(2),
       from_cover: !!opts.fromCover,
       friendly_risk: r() < (opts.friendlyP ?? 0),
+      ...(target ? { target_dist_m: +(8 + rd() * 37).toFixed(1) } : {}),
     });
     return hit && !!target;
   };
