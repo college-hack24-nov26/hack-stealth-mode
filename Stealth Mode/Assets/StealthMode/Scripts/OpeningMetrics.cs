@@ -16,7 +16,7 @@ namespace StealthMode
         public static readonly Dictionary<string, float> KillTimes = new Dictionary<string, float>();
         public static readonly Dictionary<string, string> KilledBy = new Dictionary<string, string>();
         public static float ExposedSeconds;   // head outside cover while enemies were firing
-        public static float StartPressTime = -1, Beat1Time = -1, Beat1ExposedSeconds;
+        public static float StartPressTime = -1, Beat1Time = -1, Beat1ExposedSeconds, RainTime = -1;
         public static string Phase = "gate";
         public static readonly List<Beat> Heart = new List<Beat>();   // live WHOOP, one sample a second
 
@@ -24,7 +24,7 @@ namespace StealthMode
         {
             SessionStart = Time.time; MarkTime = FirstShotTime = RunnerInsideTime = EndTime = -1;
             Shots.Clear(); KillTimes.Clear(); KilledBy.Clear(); ExposedSeconds = 0;
-            StartPressTime = Beat1Time = -1; Beat1ExposedSeconds = 0; Heart.Clear();
+            StartPressTime = Beat1Time = RainTime = -1; Beat1ExposedSeconds = 0; Heart.Clear();
         }
 
         public static void RecordShot(string target, string part, float distance)
@@ -58,7 +58,7 @@ namespace StealthMode
             sb.Append($"  \"accuracy\": {F(Shots.Count == 0 ? -1 : hits / (float)Shots.Count)},\n");
             sb.Append($"  \"exposed_s\": {F(ExposedSeconds)},\n");
             sb.Append($"  \"runner_inside_s\": {F(Rel(RunnerInsideTime))},\n");
-            sb.Append($"  \"beat1_s\": {F(Rel(Beat1Time))},\n  \"beat1_exposed_s\": {F(Beat1ExposedSeconds)},\n  \"kills\": {{");
+            sb.Append($"  \"beat1_s\": {F(Rel(Beat1Time))},\n  \"beat1_exposed_s\": {F(Beat1ExposedSeconds)},\n  \"rain_s\": {F(Rel(RainTime))},\n  \"kills\": {{");
             int i = 0;
             foreach (var kv in KillTimes)
                 sb.Append($"{(i++ > 0 ? ", " : "")}\"{kv.Key}\": {{\"t\": {F(Rel(kv.Value))}, \"by\": \"{KilledBy[kv.Key]}\"}}");

@@ -33,6 +33,10 @@ LINES = [
     ("r11_comms_backdoor", "comms", "Alpha Lead, Comms. All six tangos are out front, on us. Back door is clear. Go now. Take the device."),
     ("r12_captain_copy", "captain", "Copy, Comms. Doc, on me. Moving."),
     ("r13_captain_in", "captain", "Alpha Lead. We're in. Moving to the device."),
+    # beat 3
+    ("r14_sniper2_down2", "sniper2", "Sniper Two. Tango down. Five left out front."),
+    ("r15_sniper1_rain", "sniper1", "Sniper One. Heavy rain, coming in fast. I've lost my sight picture. I can't see a thing."),
+    ("r16_sniper2_blind", "sniper2", "Sniper Two. Same here. Can't see past the fence. We're blind. Engineer, Comms, you are on your own up front."),
 ]
 
 
@@ -189,6 +193,49 @@ def wind_loop(sec=24):
     return x[:-fade]
 
 
+def rain_loop(sec=20):
+    """Steady heavy rain on open ground: dense hiss with slow swell, seamless loop."""
+    n = int(SR * sec)
+    hiss = fft_band(rng.normal(0, 1, n).astype(np.float32), 1200, 11000)
+    body = fft_band(rng.normal(0, 1, n).astype(np.float32), 200, 1200) * 0.55
+    swell = 0.75 + 0.25 * np.interp(np.arange(n), np.linspace(0, n, 15), rng.uniform(0, 1, 15))
+    x = norm((hiss + body) * swell, 0.55)
+    fade = int(SR * 1.5)
+    x[:fade] = x[:fade] * np.linspace(0, 1, fade) + x[-fade:] * np.linspace(1, 0, fade)
+    return x[:-fade]
+
+
+def rain_metal_loop(sec=16):
+    """Rain drumming on a steel container roof overhead: thousands of tiny ringing hits, a deep tin boom underneath."""
+    n = int(SR * sec)
+    x = np.zeros(n, np.float32)
+    for _ in range(int(sec * 260)):
+        i = int(rng.uniform(0, n - 4000)); f = rng.uniform(380, 1500); a = rng.uniform(0.15, 1) ** 2
+        k = np.arange(2600) / SR
+        x[i:i + 2600] += (a * np.sin(2 * np.pi * f * k) * np.exp(-k / rng.uniform(0.004, 0.02))).astype(np.float32)
+    x += fft_band(rng.normal(0, 1, n).astype(np.float32), 2500, 9000) * 0.12
+    boom = fft_band(rng.normal(0, 1, n).astype(np.float32), 70, 260) * 0.9
+    x = norm(x + boom * np.interp(np.arange(n), np.linspace(0, n, 9), rng.uniform(0.3, 1, 9)), 0.6)
+    fade = int(SR * 1.2)
+    x[:fade] = x[:fade] * np.linspace(0, 1, fade) + x[-fade:] * np.linspace(1, 0, fade)
+    return x[:-fade]
+
+
+def thunder(seed, sec=9):
+    """Distant thunder: a crack that is already a rumble, rolling and dying away over several seconds."""
+    r = np.random.default_rng(seed)
+    n = int(SR * sec)
+    t = np.arange(n) / SR
+    low = fft_band(r.normal(0, 1, n).astype(np.float32), 25, 140)
+    mid = fft_band(r.normal(0, 1, n).astype(np.float32), 120, 700)
+    rolls = np.zeros(n, np.float32)
+    for k in range(r.integers(5, 9)):
+        at = r.uniform(0, sec * 0.7); rolls += (np.exp(-np.abs(t - at) / r.uniform(0.25, 0.9)) * r.uniform(0.3, 1)).astype(np.float32)
+    x = (low * 1.0 + mid * 0.45) * rolls * np.exp(-t / (sec * 0.38))
+    x *= np.minimum(1, t / 0.25)
+    return norm(x.astype(np.float32), 0.85)
+
+
 def alarm(sec=8):
     n = int(SR * sec); t = np.arange(n) / SR
     f = 650 + 450 * (0.5 - 0.5 * np.cos(2 * np.pi * t / 2.0))
@@ -200,6 +247,12 @@ def alarm(sec=8):
 
 def main():
     import sys
+    if "--rain" in sys.argv:    # only the beat 3 weather sounds
+        write(os.path.join(OUT, "rain_loop.wav"), rain_loop())
+        write(os.path.join(OUT, "rain_metal_loop.wav"), rain_metal_loop())
+        for i in range(1, 4):
+            write(os.path.join(OUT, f"thunder_{i}.wav"), thunder(30 + i))
+        print("RAIN_DONE"); return
     if "--lines" in sys.argv:   # only (re)make the named radio lines, e.g. --lines r11_comms_backdoor,r12_captain_copy
         want = sys.argv[sys.argv.index("--lines") + 1].split(",")
         for name, who, text in LINES:
@@ -218,6 +271,10 @@ def main():
         write(os.path.join(OUT, f"impact_dirt_{i}.wav"), impact_dirt(10 + i))
     write(os.path.join(OUT, "wind_loop.wav"), wind_loop())
     write(os.path.join(OUT, "alarm_siren.wav"), alarm())
+    write(os.path.join(OUT, "rain_loop.wav"), rain_loop())
+    write(os.path.join(OUT, "rain_metal_loop.wav"), rain_metal_loop())
+    for i in range(1, 4):
+        write(os.path.join(OUT, f"thunder_{i}.wav"), thunder(30 + i))
     print("AUDIO_DONE")
 
 

@@ -35,7 +35,8 @@ namespace StealthMode
             {
                 phase = value; OpeningMetrics.Phase = value;
                 // the debrief's phase ids (web-app/src/lib/scenario.ts)
-                var id = value == "briefing" ? "briefing" : value == "engagement" ? "contact" : value.StartsWith("beat1") ? "escalation" : null;
+                var id = value == "briefing" ? "briefing" : value == "engagement" ? "contact" : value.StartsWith("beat1") ? "escalation"
+                       : value.StartsWith("beat3") ? "rain" : null;
                 if (id != null && id != sentPhase) { sentPhase = id; HeartLink.Event("phase", "system", $"{{\"id\":\"{id}\"}}"); }
             }
         }
@@ -57,6 +58,9 @@ namespace StealthMode
             ["r11_comms_backdoor"] = "Alpha Lead, Comms. All six tangos are out front, on us. Back door is clear. Go now. Take the device.",
             ["r12_captain_copy"] = "Copy, Comms. Doc, on me. Moving.",
             ["r13_captain_in"] = "Alpha Lead. We're in. Moving to the device.",
+            ["r14_sniper2_down2"] = "Sniper Two. Tango down. Five left out front.",
+            ["r15_sniper1_rain"] = "Sniper One. Heavy rain, coming in fast. I've lost my sight picture. I can't see a thing.",
+            ["r16_sniper2_blind"] = "Sniper Two. Same here. Can't see past the fence. We're blind. Engineer, Comms, you are on your own up front.",
         };
 
         static string ActorOf(string clip) =>
@@ -234,9 +238,49 @@ namespace StealthMode
             yield return Say("r13_captain_in");
             Debug.Log("[StealthMode] BEAT 2: Captain + Doc inside");
             OpeningMetrics.Save();      // snapshot
-            // the script ends here for now (beats 3-8 are not built): close the debrief session and let the relay stand down
+            yield return BeatThree(squad);
+        }
+
+        // ---------------------------------------------------------- beat 3: one more down, then the storm blinds the snipers
+        // Sniper-2 (south-east corner) takes the eastern-most of the men out front. Then the storm rolls in: thunder, rain
+        // building over ~8 s, light going flat, fog. Both snipers lose their sight picture and say so; from here on they are
+        // out of the fight and the front belongs to the Engineer and Comms.
+        public bool SnipersBlind { get; private set; }
+
+        IEnumerator BeatThree(System.Collections.Generic.List<EnemyAI> squad)
+        {
+            yield return new WaitForSeconds(2f);
+            Phase = "beat3_rain";
+            EnemyAI target = null;
+            foreach (var e in squad)
+                if (!e.Dead && !e.Running && (target == null || e.transform.position.x > target.transform.position.x)) target = e;
+            if (target)
+            {
+                CombatFx.I.Play("sniper_distant", sniper2Muzzle.position, 1f, 60f);
+                yield return new WaitForSeconds(0.18f);   // the round arrives a beat after the sound leaves the rifle
+                if (!target.Dead)
+                {
+                    target.Kill(target.rig.Chest.position, (target.rig.Chest.position - sniper2Muzzle.position).normalized, "Sniper-2", 260f);
+                    OpeningMetrics.RecordKill(target.id, "Sniper-2");
+                }
+                yield return new WaitForSeconds(0.8f);
+                int left = 0; foreach (var e in squad) if (!e.Dead) left++;
+                yield return Say(left == 5 ? "r14_sniper2_down2" : "r09_sniper2_down");
+            }
+
+            OpeningMetrics.RainTime = Time.time;
+            HeartLink.Event("rain_start", "system", "{}");
+            Weather.Begin(player.cam.transform, GameObject.Find("Shipment-1 (cover)")?.transform);
+            Debug.Log("[StealthMode] BEAT 3: storm rolling in");
+            yield return new WaitForSeconds(6.5f);         // rain is heavy before they give up the glass
+            yield return Say("r15_sniper1_rain");
+            yield return Say("r16_sniper2_blind");
+            SnipersBlind = true;
+            OpeningMetrics.Save();
+
+            // the script ends here for now (beats 4-8 are not built): close the debrief session and let the relay stand down
             yield return new WaitForSeconds(20f);
-            HeartLink.EndMission("failed", "script ends after beat 2 (build in progress)");
+            HeartLink.EndMission("failed", "script ends after beat 3 (build in progress)");
         }
 
         IEnumerator Flank(SoldierRig rig, float delay, bool lead)
