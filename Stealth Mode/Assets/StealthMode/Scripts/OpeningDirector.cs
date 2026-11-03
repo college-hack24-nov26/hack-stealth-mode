@@ -16,6 +16,9 @@ namespace StealthMode
     /// Beat 3: Sniper-2 takes one more, the storm rolls in, both snipers go blind.
     /// Beat 4: Comms takes the corner of Shipment-1 low, gives the Engineer his man, takes one himself -> three left.
     /// Beat 5: Comms moves up under the Engineer's cover, walks into a trip wire; the mine throws him into the open.
+    /// Beat 6: the Engineer reports it out loud and drags Comms behind the container (or dies fighting from the open).
+    /// Beat 7: device neutralised; the Captain asks for a sitrep and the Engineer gives it out loud (mac/captain_agent.py).
+    /// Beat 8: Captain and Doc come out of the front door, drop the last men, reach Comms; MISSION SUCCESSFUL.
     /// First the briefing film (Briefing.cs) on its own trigger press, then the run starts only when the Engineer presses the
     /// right trigger again, so the rifle is already on his controller.
     /// </summary>
@@ -32,6 +35,7 @@ namespace StealthMode
         public float stretchWindow = 6f, engineerDeadline = 40f;
         public bool autoPlay;               // editor play-test: the rig aims and fires by itself
         public bool autoPlayNoRescue;       // editor play-test of the fail: in beat 6 he fights from the open instead
+        public bool autoPlaySilent;         // editor play-test: he never says a word on the radio
 
         string phase = "gate";
         public string Phase
@@ -43,7 +47,7 @@ namespace StealthMode
                 // the debrief's phase ids (web-app/src/lib/scenario.ts)
                 var id = value == "briefing" ? "briefing" : value == "engagement" ? "contact" : value.StartsWith("beat1") ? "escalation"
                        : value.StartsWith("beat3") ? "rain" : value.StartsWith("beat5_casualty") ? "casualty"
-                       : value.StartsWith("beat6_holdout") ? "holdout" : null;
+                       : value.StartsWith("beat6_holdout") ? "holdout" : value.StartsWith("beat8") ? "extraction" : null;
                 if (id != null && id != sentPhase) { sentPhase = id; HeartLink.Event("phase", "system", $"{{\"id\":\"{id}\"}}"); }
             }
         }
@@ -82,8 +86,23 @@ namespace StealthMode
             ["r21_comms_moving"] = "Engineer, I'm moving up! Cover me! Shoot at them while I run!",
             ["r22_captain_report"] = "Engineer, Alpha Lead! We heard a blast. What happened? Report!",
             ["r23_captain_drag"] = "Copy, Engineer! Get Comms out of the open. Grab his vest and drag him back behind your container. Move!",
+            ["r23b_captain_keepgoing"] = "Copy, Engineer. Keep him moving. Get him behind the steel.",
             ["r24_captain_open"] = "Engineer, you're in the open! Get him into cover, now!",
             ["r25_captain_down"] = "Engineer's down! Engineer's down!",
+            ["r26_captain_neutralised"] = "Alpha team, Alpha Lead. Device neutralised. I say again, device neutralised. Engineer, sitrep!",
+            ["r27_captain_sayagain"] = "Engineer, say again. You're breaking up.",
+            ["r28_captain_status"] = "Engineer, status?",
+            ["r30_captain_copy_all"] = "Good copy, Engineer. Hold there and keep Comms down. Doc and I are coming to you.",
+            ["r31_captain_ask_cover"] = "Engineer, are you in cover? Confirm your position.",
+            ["r32_captain_ask_comms"] = "Engineer, what's Comms' status? Is he with you?",
+            ["r33_captain_ask_backup"] = "Copy. Engineer, do you need support?",
+            ["r34_captain_coming"] = "Copy, Engineer. Hold where you are. We're coming to you.",
+            ["r35_captain_no_contact"] = "Engineer, nothing heard. Stay down. We are coming to you.",
+            ["r36_captain_coming_out"] = "Engineer, Alpha Lead. We are coming out of the front door. Watch your fire.",
+            ["r37_captain_clear"] = "Alpha Lead. All tangos down. Area secure.",
+            ["r38_doc_comms"] = "Doc. I've got Comms. He's alive. Bleeding is under control.",
+            ["r39_captain_success"] = "All call signs, Alpha Lead. Device neutralised, area secure, all of Alpha accounted for. Mission successful. Good work, Engineer.",
+            ["r40_captain_comms_lost"] = "Engineer, Alpha Lead. Comms is gone. We lost him. Mission failed.",
         };
 
         // what the captions add for the person in the headset (the controls), after the words on the radio
@@ -149,7 +168,7 @@ namespace StealthMode
             }
             CombatFx.I.Play("wind_loop", player.cam.transform.position, 0.35f, 50f, spatial: false).loop = true;
             if (!autoPlay) yield return StartGate();
-            HeartLink.StartMission();
+            if (!autoPlay) HeartLink.StartMission();     // an editor play-test opens no debrief run
             Phase = "briefing";
             yield return new WaitForSeconds(2f);
 
@@ -489,15 +508,15 @@ namespace StealthMode
             return best;
         }
 
-        // one aimed round from Comms' rifle; it lands wherever it really goes
-        void CommsRound(Vector3 aim)
+        // one aimed round from a teammate's rifle; it lands wherever it really goes
+        void Round(SoldierRig who, Vector3 aim)
         {
-            var m = comms.Muzzle; if (!m) return;
+            var m = who.Muzzle; if (!m) return;
             var dir = (aim - m.position).normalized;
             var end = m.position + dir * 300f; float best = 300f;
             foreach (var h in Physics.RaycastAll(m.position + dir * 0.4f, dir, 300f, ~0, QueryTriggerInteraction.Ignore))
             {
-                if (h.collider.transform.IsChildOf(comms.transform)) continue;
+                if (h.collider.transform.IsChildOf(who.transform)) continue;
                 if (h.distance < best) { best = h.distance; end = h.point; }
             }
             CombatFx.I.MuzzleFlash(m);
@@ -518,7 +537,7 @@ namespace StealthMode
             if (!e.Dead)
             {
                 comms.aimPoint = e.rig.Chest.position;
-                for (int i = 0; i < 2; i++) { CommsRound(e.rig.Chest.position); yield return new WaitForSeconds(0.13f); }
+                for (int i = 0; i < 2; i++) { Round(comms, e.rig.Chest.position); yield return new WaitForSeconds(0.13f); }
                 if (!e.Dead)
                 {
                     e.Kill(e.rig.Chest.position, (e.rig.Chest.position - comms.Muzzle.position).normalized, "Comms");
@@ -576,7 +595,7 @@ namespace StealthMode
         // "Cover me!" and he goes, out from the corner toward the yard, low ready, the enemy switching their fire onto him.
         // 2.8 m out his shin takes the wire: the mine fires and throws him back into the open, ~1.5 m from the Engineer
         // (a spot the three can see, so getting him means stepping out). Comms' radio dies with him on it; from now on he
-        // is only a voice in the air: screams, groans, "I'm hit", "My leg", "Engineer, help me!".
+        // is only a voice in the air: short broken calls for help.
         static readonly Vector3 AdvanceDir = new Vector3(-0.834f, 0, 0.551f);
         const float WireAt = 2.8f, AdvanceLength = 4.2f;
         TripMine mine;
@@ -586,7 +605,7 @@ namespace StealthMode
             yield return new WaitForSeconds(2.5f);
             Phase = "beat5_advance";
             OpeningMetrics.Beat5Time = Time.time;
-            if (!comms || comms.Dead || !mine) { EndScript(); yield break; }
+            if (!comms || comms.Dead || !mine) { yield return Finish(false, "Comms was lost before he could move up."); yield break; }
             StartSuppress(squad);
             HeartLink.Event("cover_request", "communicator", "{}");
             int shots0 = OpeningMetrics.Shots.Count; float advance0 = Time.time;
@@ -625,20 +644,19 @@ namespace StealthMode
             yield return BeatSix(squad, blast);
         }
 
-        // the script ends here for now (beats 7-8 are not built): close the debrief session and let the relay stand down
-        static void EndScript() => HeartLink.EndMission("failed", "script ends after beat 6 (build in progress)");
-
         // ---------------------------------------------------------- beat 6: man down in the open
         // Three things are measured from the blast: how soon the Engineer says it on the radio (out loud: the headset mic),
         // how soon he gets Comms out of the open (left hand on the vest, GRIP held, walk backwards behind the container),
         // and whether he fights from the open instead. He is safe the moment none of the three can see him.
         // Captain asks for a report if he hasn't spoken in ~9 s, and tells him plainly what to do once he has.
-        // FAIL: 10 s in the open (cumulative) without holding Comms, or 3 shots fired from the open without holding him.
+        // FAIL: 10 s in the open (cumulative) without holding Comms, 3 shots fired from the open without holding him,
+        // or Comms bleeds out: never touched in 90 s, or not in cover 150 s after the blast.
         Rescue rescue;
         Coroutine wounded;
         bool beat6Over;
         public float openLimit = 10f, openWarn = 5f;
         public int openShotLimit = 3;
+        public float bleedOut = 90f, bleedOutHeld = 150f;
 
         IEnumerator BeatSix(List<EnemyAI> squad, float blast)
         {
@@ -663,14 +681,14 @@ namespace StealthMode
                 if (!warned && open > openWarn) { warned = true; StartCoroutine(Say("r24_captain_open")); }
                 if (open >= openLimit || OpeningMetrics.OpenShots >= openShotLimit)
                 {
-                    yield return Fail(OpeningMetrics.OpenShots >= openShotLimit ? "fought from the open instead of getting Comms to cover" : "stayed in the open too long without Comms");
+                    yield return Fail(OpeningMetrics.OpenShots >= openShotLimit ? "You fought from the open instead of getting Comms to cover." : "You stayed in the open too long without Comms.");
                     yield break;
                 }
                 // safe: he has been pulled (not just lying lucky) and no one out there can see him
                 bool hidden = rescue.EverGrabbed && rescue.Moved > 0.6f && !SeenByEnemy(squad, comms.Chest.position + Vector3.up * 0.15f);
                 hiddenFor = hidden ? hiddenFor + Time.deltaTime : 0;
                 if (hiddenFor > 0.5f) break;
-                if (!rescue.EverGrabbed && Time.time - blast > 90f) { beat6Over = true; OpeningMetrics.Save(); EndScript(); yield break; }
+                if ((!rescue.EverGrabbed && Time.time - blast > bleedOut) || Time.time - blast > bleedOutHeld) { yield return CommsLost(); yield break; }
             }
 
             // he made it: Comms is behind the steel
@@ -681,15 +699,192 @@ namespace StealthMode
             rescue.enabled = false; rescue.transform.GetChild(0).gameObject.SetActive(false);
             if (wounded != null) StopCoroutine(wounded);
             Phase = "beat6_holdout";
+            int shotsAtCover = OpeningMetrics.Shots.Count;
             Debug.Log($"[StealthMode] BEAT 6: Comms in cover {Time.time - blast:0.0} s after the blast (first grab {rescue.FirstGrabTime - blast:0.0} s, {rescue.Grabs} grab(s), {rescue.Moved:0.00} m)");
             yield return new WaitForSeconds(1.2f);
             if (!radio.isPlaying) yield return Shout("v_comms_thanks");
-            // (d) does he keep shooting once both of them are behind cover? logged only
-            int after0 = OpeningMetrics.Shots.Count;
-            yield return new WaitForSeconds(20f);
-            OpeningMetrics.ShotsAfterCover = OpeningMetrics.Shots.Count - after0;
+            yield return BeatSeven(squad, shotsAtCover);
+        }
+
+        // Comms bled out where he lay: the Captain says it, the mission is over
+        IEnumerator CommsLost()
+        {
+            beat6Over = true;
+            rescue.Drop();
+            if (wounded != null) StopCoroutine(wounded);
+            commsVoice.Stop();
+            Phase = "beat6_failed";
+            Debug.Log("[StealthMode] BEAT 6: Comms bled out");
+            yield return new WaitForSeconds(2f);
+            yield return Say("r40_captain_comms_lost");
+            yield return Finish(false, "Comms bled out. He never reached cover.");
+        }
+
+        // ---------------------------------------------------------- beat 7: device neutralised, sitrep
+        // Both of them are behind the steel; the three are still shooting. A few seconds on, the Captain calls the device
+        // neutralised and asks for a sitrep. The Engineer answers out loud: in cover, Comms with him, needs backup. The
+        // Captain (mac/captain_agent.py) asks for what is missing, at most twice. Silent 10 s: "Engineer, status?" once,
+        // logged as prompted. The mission never hangs on this: no answer, and they come anyway.
+        IEnumerator BeatSeven(List<EnemyAI> squad, int shotsAtCover)
+        {
+            Phase = "beat7_sitrep";
+            while (Time.time - OpeningMetrics.SafeTime < 7f || radio.isPlaying) yield return null;
+            // (d) did he keep shooting once both of them were behind cover? logged only
+            OpeningMetrics.ShotsAfterCover = OpeningMetrics.Shots.Count - shotsAtCover;
+            OpeningMetrics.BombTime = Time.time;
+            HeartLink.Event("bomb_defused", "captain", "{}");
+            Debug.Log("[StealthMode] BEAT 7: device neutralised");
+            yield return Say("r26_captain_neutralised");
+
+            float asked = Time.time, called = -1; HeartLink.AgentReply said = null;
+            System.Func<bool> never = () => false;
+            yield return Hear("sitrep", asked, 10f, never, t => called = t, r => said = r);
+            if (called < 0)
+            {
+                OpeningMetrics.SitrepPrompted = true;
+                yield return Say("r28_captain_status");
+                asked = Time.time;
+                yield return Hear("sitrep", asked, 10f, never, t => called = t, r => said = r);
+            }
+            string closing = "r35_captain_no_contact";
+            if (called >= 0)
+            {
+                OpeningMetrics.SitrepLatency = called - asked;
+                for (int round = 0; ; round++)
+                {
+                    LogEngineer(said, "(gave a sitrep: voice heard, words not checked)", called, OpeningMetrics.SitrepPrompted);
+                    if (said != null)
+                    {
+                        OpeningMetrics.SitrepCover |= said.cover == 1; OpeningMetrics.SitrepComms |= said.comms == 1; OpeningMetrics.SitrepBackup |= said.backup == 1;
+                        OpeningMetrics.SitrepText = (OpeningMetrics.SitrepText == null ? "" : OpeningMetrics.SitrepText + " / ") + said.heard;
+                    }
+                    closing = "r34_captain_coming";
+                    if (said == null || string.IsNullOrEmpty(said.clip)) break;     // the Mac didn't answer: he was still heard
+                    if (said.done == 1) { closing = said.clip; break; }
+                    if (round >= 2) break;
+                    OpeningMetrics.SitrepFollowUps++;
+                    yield return Say(said.clip);
+                    float again = -1; HeartLink.AgentReply next = null;
+                    yield return Hear("sitrep", Time.time, 8f, never, t => again = t, r => next = r);
+                    if (again < 0) break;
+                    called = again; said = next;
+                }
+            }
+            Debug.Log($"[StealthMode] BEAT 7: sitrep cover={OpeningMetrics.SitrepCover} comms={OpeningMetrics.SitrepComms} backup={OpeningMetrics.SitrepBackup} prompted={OpeningMetrics.SitrepPrompted}: {OpeningMetrics.SitrepText}");
+            yield return Say(closing);
             OpeningMetrics.Save();
-            EndScript();
+            yield return BeatEight(squad);
+        }
+
+        // ---------------------------------------------------------- beat 8: Captain and Doc come out
+        // Out of the device room to the front door, shooting whoever is left from each stop on the way, then a run to the
+        // Engineer: Doc goes down at Comms, the Captain closes it out.
+        static readonly Vector3[] SweepStops = { new Vector3(-2.2f, 0.35f, -5f), new Vector3(-2f, 0.35f, -8.2f), new Vector3(-2f, 0f, -12.6f) };
+        static readonly Vector3[] ToEngineer = { new Vector3(10f, 0, -17f), new Vector3(20.5f, 0, -25.5f) };
+
+        IEnumerator BeatEight(List<EnemyAI> squad)
+        {
+            Phase = "beat8_sweep";
+            OpeningMetrics.SweepTime = Time.time;
+            yield return Say("r36_captain_coming_out");
+            int turn = 0;
+            foreach (var stop in SweepStops)
+            {
+                if (Alive(squad) == 0) break;
+                StartCoroutine(Walk(paramedic, new[] { stop + Vector3.right * 1.3f }, 2.2f));
+                yield return Walk(captain, new[] { stop }, 2.2f);
+                captain.stance = paramedic.stance = SoldierRig.Stance.Crouch;
+                captain.aiming = paramedic.aiming = true;
+                foreach (var e in squad) if (!e.Dead) e.player = captain.Head;   // the fire swings onto the door
+                for (var e = InSight(squad); e != null; e = InSight(squad))
+                    yield return TeamTakes(turn++ % 2 == 0 ? captain : paramedic, e);
+            }
+            // anyone still out of sight behind cover: go and find him
+            while (Alive(squad) > 0)
+            {
+                EnemyAI e = null;
+                foreach (var c in squad)
+                    if (!c.Dead && (e == null || Vector3.Distance(c.transform.position, captain.transform.position) < Vector3.Distance(e.transform.position, captain.transform.position))) e = c;
+                captain.aiming = true;
+                var go = StartCoroutine(RunTo(captain, new[] { e.transform.position }, 3f, SoldierRig.Stance.Rush, () => e.rig.Chest.position));
+                for (float t = Time.time; Time.time - t < 8f && !e.Dead && !LineClear(captain.Head.position, e.rig.Chest.position);) yield return null;
+                StopCoroutine(go);
+                yield return TeamTakes(captain, e);
+            }
+            OpeningMetrics.ClearTime = Time.time;
+            Debug.Log("[StealthMode] BEAT 8: all tangos down");
+            yield return Say("r37_captain_clear");
+
+            // Doc to Comms, the Captain to the Engineer
+            var casualty = comms.Chest.position; casualty.y = 0;
+            var side = (ToEngineer[1] - casualty); side.y = 0;
+            var docSpot = casualty + side.normalized * 0.75f;
+            var eye = player.cam.transform.position; eye.y = 0;
+            var captainSpot = eye + (ToEngineer[1] - eye).normalized * 2f;
+            bool docThere = false;
+            IEnumerator DocGoes()
+            {
+                yield return RunTo(paramedic, new[] { ToEngineer[0], ToEngineer[1], docSpot }, 3.6f);
+                paramedic.stance = SoldierRig.Stance.Kneel; paramedic.aiming = false;
+                docThere = true;
+            }
+            StartCoroutine(DocGoes());
+            yield return new WaitForSeconds(0.6f);
+            yield return RunTo(captain, new[] { ToEngineer[0], ToEngineer[1], captainSpot }, 3.4f);
+            captain.stance = SoldierRig.Stance.Stand; captain.aiming = false;
+            var look = player.cam.transform.position - captain.transform.position; look.y = 0;
+            captain.transform.rotation = Quaternion.LookRotation(look);
+            while (!docThere) yield return null;
+            yield return new WaitForSeconds(0.8f);
+            yield return Say("r38_doc_comms", paramedic.Head);
+            yield return Say("r39_captain_success", captain.Head);
+            yield return new WaitForSeconds(1.2f);
+            yield return Finish(true, "Device neutralised. Area secure. Comms is alive.");
+        }
+
+        EnemyAI InSight(List<EnemyAI> squad)
+        {
+            EnemyAI best = null; float bd = float.MaxValue;
+            foreach (var e in squad)
+            {
+                if (e.Dead || !e.rig.Chest) continue;
+                float d = Vector3.Distance(captain.Head.position, e.rig.Chest.position);
+                if (d < bd && LineClear(captain.Head.position, e.rig.Chest.position)) { bd = d; best = e; }
+            }
+            return best;
+        }
+
+        // sights on, three rounds, and he is down
+        IEnumerator TeamTakes(SoldierRig who, EnemyAI e)
+        {
+            who.aiming = true; who.aimPoint = e.rig.Chest.position;
+            yield return new WaitForSeconds(Random.Range(0.5f, 0.8f));
+            if (e.Dead) yield break;
+            for (int i = 0; i < 3; i++) { Round(who, e.rig.Chest.position); yield return new WaitForSeconds(0.12f); }
+            if (e.Dead) yield break;
+            var by = who == captain ? "Captain" : "Paramedic";
+            e.Kill(e.rig.Chest.position, (e.rig.Chest.position - who.Head.position).normalized, by);
+            OpeningMetrics.RecordKill(e.id, by);
+            yield return new WaitForSeconds(0.5f);
+        }
+
+        // ---------------------------------------------------------- the end
+        // The one way out of the mission, success or failure: metrics saved, debrief closed, the end screen.
+        bool finished;
+        IEnumerator Finish(bool success, string reason, MeshRenderer veil = null)
+        {
+            if (finished) yield break;
+            finished = true;
+            player.armed = false;
+            VoiceActivity.Listen = null;
+            StopSuppress();
+            foreach (var e in FindObjectsByType<EnemyAI>(FindObjectsSortMode.None)) e.canFire = false;
+            OpeningMetrics.Success = success; OpeningMetrics.EndReason = reason; OpeningMetrics.FinishTime = Time.time;
+            OpeningMetrics.FailReason = success ? null : reason;
+            OpeningMetrics.Save();
+            HeartLink.EndMission(success ? "success" : "failed", reason);
+            Debug.Log($"[StealthMode] MISSION {(success ? "SUCCESSFUL" : "FAILED")}: {reason}");
+            yield return MissionEnd.Show(player.cam, success, reason, veil);
         }
 
         IEnumerator MeasureLanding()
@@ -700,27 +895,82 @@ namespace StealthMode
             Debug.Log($"[StealthMode] BEAT 5: Comms down {OpeningMetrics.LandingDistance:0.00} m from the Engineer");
         }
 
-        // the Engineer's report: his first words after the blast (headset mic); the Captain asks once if he says nothing
+        // The Engineer talking to the Captain: wait for his voice, stream it to the Mac while he speaks, wait for the
+        // Captain's decision (mac/captain_agent.py). done(null) when the Mac doesn't answer: he was still heard, the words
+        // just weren't checked. Nothing is called when he stays silent for `silence` seconds.
+        IEnumerator Hear(string ctx, float since, float silence, System.Func<bool> stop, System.Action<float> voice, System.Action<HeartLink.AgentReply> done)
+        {
+            HeartLink.TakeReply(null);          // nothing left over from an earlier exchange
+            if (autoPlay && !autoPlaySilent)
+            {
+                yield return new WaitForSeconds(2f);
+                if (stop()) yield break;
+                voice(Time.time - 1.5f);
+                done(new HeartLink.AgentReply
+                {
+                    ctx = ctx, done = 1, cover = 1, comms = 1, backup = 1, intent = "sim",
+                    heard = ctx == "report" ? "Alpha Lead, Comms is down, trip mine." : "Behind the container, Comms is with me, need backup.",
+                    clip = ctx == "report" ? "r23_captain_drag" : "r30_captain_copy_all",
+                });
+                yield break;
+            }
+            VoiceActivity.Listen = ctx;
+            float t0 = Time.time;
+            while (VoiceActivity.LastOnset < since)
+            {
+                if (Time.time - t0 > silence || stop()) { VoiceActivity.Listen = null; yield break; }
+                yield return null;
+            }
+            voice(VoiceActivity.LastOnset);
+            for (float t = Time.time; VoiceActivity.Speaking && Time.time - t < 14f && !stop();) yield return null;
+            HeartLink.AgentReply r = null;
+            for (float t = Time.time; r == null && Time.time - t < 5f && !stop();) { r = HeartLink.TakeReply(ctx); yield return null; }
+            VoiceActivity.Listen = null;
+            done(r);
+        }
+
+        // what he said goes on the debrief timeline at the moment he started saying it
+        void LogEngineer(HeartLink.AgentReply said, string unchecked_, float onset, bool prompted)
+        {
+            bool words = said != null && !string.IsNullOrEmpty(said.heard);
+            HeartLink.Event("radio", "engineer", $"{{\"transcript\":{HeartLink.Str(words ? said.heard : unchecked_)},\"voice_only\":{(words ? "false" : "true")},\"prompted\":{(prompted ? "true" : "false")},\"end_ms\":{Mathf.RoundToInt((Time.time - HeartLink.MissionStart) * 1000f)}}}", onset);
+        }
+
+        // the Engineer's report: his first words after the blast (headset mic); the Captain asks once if he says nothing,
+        // and asks him to say again if the words were no use
         IEnumerator ReportWatch(float blast)
         {
-            float since = blast + 0.8f, called = -1;
-            while (called < 0 && Time.time - blast < 9f && !beat6Over) { if (VoiceActivity.LastOnset >= since) called = VoiceActivity.LastOnset; yield return null; }
+            float called = -1; HeartLink.AgentReply said = null;
+            System.Func<bool> over = () => beat6Over;
+            yield return Hear("report", blast + 0.8f, 9f, over, t => called = t, r => said = r);
             if (called < 0 && !beat6Over)
             {
                 OpeningMetrics.ReportPrompted = true;
                 yield return Say("r22_captain_report");
-                float p = Time.time;
-                while (called < 0 && Time.time - p < 8f && !beat6Over) { if (VoiceActivity.LastOnset >= p) called = VoiceActivity.LastOnset; yield return null; }
+                yield return Hear("report", Time.time, 8f, over, t => called = t, r => said = r);
             }
             if (called >= 0)
             {
                 OpeningMetrics.ReportLatency = called - blast;
-                HeartLink.Event("radio", "engineer", $"{{\"transcript\":\"(reported the blast: voice heard, words not checked)\",\"voice_only\":true,\"prompted\":{(OpeningMetrics.ReportPrompted ? "true" : "false")},\"end_ms\":{Mathf.RoundToInt((Time.time + 1f - HeartLink.MissionStart) * 1000f)}}}");
-                Debug.Log($"[StealthMode] BEAT 6: Engineer reported {called - blast:0.0} s after the blast{(OpeningMetrics.ReportPrompted ? " (prompted)" : "")}");
-                for (float t = Time.time; VoiceActivity.Speaking && Time.time - t < 6f;) yield return null;   // let him finish
+                OpeningMetrics.ReportText = said?.heard; OpeningMetrics.ReportClear = said != null && said.intent == "report_ok";
+                LogEngineer(said, "(reported the blast: voice heard, words not checked)", called, OpeningMetrics.ReportPrompted);
+                Debug.Log($"[StealthMode] BEAT 6: Engineer reported {called - blast:0.0} s after the blast{(OpeningMetrics.ReportPrompted ? " (prompted)" : "")}: {said?.heard} -> {said?.intent}");
+                if (said != null && said.clip == "r27_captain_sayagain" && !beat6Over)
+                {
+                    yield return Say(said.clip);
+                    float again = -1; HeartLink.AgentReply next = null;
+                    yield return Hear("report", Time.time, 7f, over, t => again = t, r => next = r);
+                    if (again >= 0)
+                    {
+                        OpeningMetrics.ReportText = next?.heard ?? OpeningMetrics.ReportText; OpeningMetrics.ReportClear = next != null && next.intent == "report_ok";
+                        LogEngineer(next, "(reported the blast: voice heard, words not checked)", again, true);
+                    }
+                }
             }
+            if (beat6Over) yield break;
             // then the plain instruction, unless he is already pulling him
-            if (!beat6Over && !rescue.EverGrabbed) yield return Say("r23_captain_drag");
+            if (!rescue.EverGrabbed) yield return Say("r23_captain_drag");
+            else if (called >= 0) yield return Say("r23b_captain_keepgoing");
         }
 
         // the Engineer's head can be seen by one of them
@@ -740,6 +990,7 @@ namespace StealthMode
             player.armed = false;
             rescue.Drop();
             if (wounded != null) StopCoroutine(wounded);
+            commsVoice.Stop();
             var head = player.cam.transform;
             CombatFx.I.Play("bullet_crack", head.position + head.right * 0.3f, 1f, 3f);
             CombatFx.I.Play("impact_dirt_1", head.position - Vector3.up * 0.5f, 1f, 3f);
@@ -755,10 +1006,8 @@ namespace StealthMode
             var veil = Briefing.Veil(player.cam);
             StartCoroutine(Say("r25_captain_down"));
             yield return Briefing.Fade(veil, 0f, 1f, 1.8f);
-            Caption.Big(head, "MISSION FAILED");
-            OpeningMetrics.FailReason = reason;
-            OpeningMetrics.Save();
-            HeartLink.EndMission("failed", reason);
+            yield return new WaitForSeconds(0.9f);
+            yield return Finish(false, reason, veil);
         }
 
         IEnumerator SayAfter(float delay, string clip, Transform speakerNearby)
@@ -807,6 +1056,7 @@ namespace StealthMode
             int last = -1;
             while (true)
             {
+                while (VoiceActivity.Speaking) yield return null;       // a breath while the Engineer is on the radio
                 int i; do i = Random.Range(0, HelpText.Length); while (i == last && HelpText.Length > 1);
                 last = i;
                 var c = CombatFx.I.Clip("Voice/v_comms_help_" + (i + 1));

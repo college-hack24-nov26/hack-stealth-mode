@@ -131,7 +131,7 @@ namespace StealthMode
                 pad.SendImpulse(0.9f, 0.06f);   // recoil felt in the hand
             CombatFx.I.MuzzleFlash(muzzle, 1.1f);
             CombatFx.I.Play("ak_close", muzzle.position, 1f, 6f, spatial: false);
-            string target = null, part = null; float dist = -1;
+            string target = null, part = null; float dist = -1; bool friendly = false;
             var hitsAll = Physics.RaycastAll(origin, dir, 400f, ~0, QueryTriggerInteraction.Ignore);
             System.Array.Sort(hitsAll, (a, b) => a.distance.CompareTo(b.distance));
             Vector3 end = origin + dir * 400f;
@@ -143,7 +143,7 @@ namespace StealthMode
                 if (hb && hb.owner)
                 {
                     var ai = hb.owner.GetComponent<EnemyAI>();
-                    if (ai == null) break; // friendly: the round stops, no score
+                    if (ai == null) { friendly = true; break; } // friendly: the round stops, no score
                     target = ai.id; part = hb.part.ToString();
                     if (ai.TakeHit(hb.part, h.point, dir, "Engineer")) OpeningMetrics.RecordKill(ai.id, "Engineer");
                     CombatFx.I.Impact(h.point, -dir, false);
@@ -156,7 +156,7 @@ namespace StealthMode
                 break;
             }
             if (Random.value < 0.35f) CombatFx.I.Tracer(muzzle.position, end);
-            OpeningMetrics.RecordShot(target, part, dist);
+            OpeningMetrics.RecordShot(target, part, dist, friendly);
         }
     }
 }

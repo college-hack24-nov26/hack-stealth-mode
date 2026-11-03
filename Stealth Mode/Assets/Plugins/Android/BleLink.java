@@ -33,6 +33,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * Quest side of the Bluetooth link to the Mac relay (mac/whoop_relay.py), so the game does not depend on the venue Wi-Fi.
  * Finds the Mac's "StealthRelay" GATT service, connects, and keeps the link up (retrying on any failure).
  *   send(json)  queues a message; it is written to the Mac one at a time (write without response)
+ *   sendAudio(base64)  the same queue for a binary frame of the Engineer's voice
  *   poll()      returns the next message the Mac sent (heart rate, acks) or null
  * Called from Unity (HeartLink.cs) with an AndroidJavaObject; everything runs on the main looper, no callbacks into C#.
  */
@@ -76,6 +77,12 @@ public class BleLink {
     public void send(String json) {
         byte[] b = json.getBytes(StandardCharsets.UTF_8);
         if (b.length > mtu - 3 && mtu > 23) Log.w(T, "message of " + b.length + " B exceeds the " + (mtu - 3) + " B packet");
+        queue(b);
+    }
+
+    public void sendAudio(String base64) { queue(android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)); }
+
+    private void queue(byte[] b) {
         synchronized (outbox) {
             if (outbox.size() > 300) outbox.pollFirst();
             outbox.addLast(b);

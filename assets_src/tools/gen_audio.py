@@ -17,7 +17,10 @@ CAST = {
     "sniper1": ("Rishi", 160, 0.97),
     "sniper2": ("Aman", 176, 1.06),
     "comms": ("Rishi", 182, 1.08),
+    "doc": ("Rishi", 168, 0.92),
 }
+# said by a man standing right beside the Engineer: his own voice in the air too (Comms always, these two at the end)
+NEARBY = {"r38_doc_comms", "r39_captain_success"}
 LINES = [
     ("r01_captain", "captain", "Alpha team, this is Alpha Lead. Doc and I are in position at the rear. All call signs, hold fire."),
     ("r02_captain", "captain", "Engineer, your targets. One: the guard up on the watchtower, straight ahead. Two: the guard at the warehouse door. Lean out past the left edge of your container to shoot. Wait for Sniper One."),
@@ -56,6 +59,23 @@ LINES = [
     ("r23_captain_drag", "captain", "Copy, Engineer! Get Comms out of the open. Grab his vest and drag him back behind your container. Move!"),
     ("r24_captain_open", "captain", "Engineer, you're in the open! Get him into cover, now!"),
     ("r25_captain_down", "captain", "Engineer's down! Engineer's down!"),
+    ("r23b_captain_keepgoing", "captain", "Copy, Engineer. Keep him moving. Get him behind the steel."),
+    ("r27_captain_sayagain", "captain", "Engineer, say again. You're breaking up."),
+    # beat 7: device down, sitrep (the Captain's answers are picked by mac/captain_agent.py)
+    ("r26_captain_neutralised", "captain", "Alpha team, Alpha Lead. Device neutralised. I say again, device neutralised. Engineer, sitrep!"),
+    ("r28_captain_status", "captain", "Engineer, status?"),
+    ("r30_captain_copy_all", "captain", "Good copy, Engineer. Hold there and keep Comms down. Doc and I are coming to you."),
+    ("r31_captain_ask_cover", "captain", "Engineer, are you in cover? Confirm your position."),
+    ("r32_captain_ask_comms", "captain", "Engineer, what's Comms' status? Is he with you?"),
+    ("r33_captain_ask_backup", "captain", "Copy. Engineer, do you need support?"),
+    ("r34_captain_coming", "captain", "Copy, Engineer. Hold where you are. We're coming to you."),
+    ("r35_captain_no_contact", "captain", "Engineer, nothing heard. Stay down. We are coming to you."),
+    # beat 8
+    ("r36_captain_coming_out", "captain", "Engineer, Alpha Lead. We are coming out of the front door. Watch your fire."),
+    ("r37_captain_clear", "captain", "Alpha Lead. All tangos down. Area secure."),
+    ("r38_doc_comms", "doc", "Doc. I've got Comms. He's alive. Bleeding is under control."),
+    ("r39_captain_success", "captain", "All call signs, Alpha Lead. Device neutralised, area secure, all of Alpha accounted for. Mission successful. Good work, Engineer."),
+    ("r40_captain_comms_lost", "captain", "Engineer, Alpha Lead. Comms is gone. We lost him. Mission failed."),
 ]
 
 # Comms' own voice in the air only (no radio): short shouts, and his voice after the blast has killed his radio
@@ -128,7 +148,7 @@ def radio_line(name, who, text):
                         f"asetrate=22050*{pitch},aresample={SR}", "-ac", "1", wav], check=True)
         x, _ = read(wav)
     x = norm(x, 0.8)
-    if who == "comms":
+    if who == "comms" or name in NEARBY:
         # Comms kneels two metres from the Engineer: his own voice is heard in the air too, unfiltered
         os.makedirs(os.path.join(OUT, "Voice"), exist_ok=True)
         write(os.path.join(OUT, "Voice", name + ".wav"), norm(x, 0.9))
@@ -405,8 +425,23 @@ def beat45():
     print("BEAT45_DONE")
 
 
+def end_stings():
+    """Under the end screen: a settled rising pair for success, a low hit and a fading drone for failure."""
+    t = np.arange(int(2.2 * SR)) / SR
+    a = 0.5 * np.sin(2 * np.pi * 392 * t) + 0.25 * np.sin(2 * np.pi * 784 * t)
+    b = 0.5 * np.sin(2 * np.pi * 587.3 * t) + 0.25 * np.sin(2 * np.pi * 1174.7 * t)
+    gate = (t > 0.28).astype(np.float32)
+    ok = (a * env(len(t), 0.01, 0.9) + b * gate * env(len(t), 0.3, 0.9)).astype(np.float32)
+    write(os.path.join(OUT, "ui_mission_success.wav"), norm(reverb(ok, 1.2, 0.3), 0.6))
+    t = np.arange(int(3.0 * SR)) / SR
+    bad = 0.7 * np.sin(2 * np.pi * 55 * t) * env(len(t), 0.005, 1.2) + 0.3 * np.sin(2 * np.pi * 58.3 * t) * env(len(t), 0.2, 1.6)
+    write(os.path.join(OUT, "ui_mission_failed.wav"), norm(reverb(bad.astype(np.float32), 1.5, 0.3), 0.75))
+
+
 def main():
     import sys
+    if "--stings" in sys.argv:
+        end_stings(); return
     if "--beat45" in sys.argv:
         beat45(); return
     if "--rain" in sys.argv:    # only the beat 3 weather sounds

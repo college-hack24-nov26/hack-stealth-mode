@@ -16,6 +16,8 @@ namespace StealthMode
     /// The relay is idle until the Engineer presses the right trigger: StartMission() sends mission_start, which wakes it
     /// (WHOOP connect + debrief session); EndMission() closes it. Every event carries a sequence number and is resent until
     /// the relay acks it, so a dropped UDP packet never loses a shot or a mission end. Nothing is shown to the Engineer.
+    /// The same link carries his voice to the Captain: Audio() sends mic frames (VoiceActivity.cs), TakeReply() gets the
+    /// Captain's decision back (mac/captain_agent.py).
     /// </summary>
     public class HeartLink : MonoBehaviour
     {
@@ -30,6 +32,11 @@ namespace StealthMode
         public static float MissionStart { get; private set; } = -1f;
 
         class Pending { public int n; public string json; public float sent; public int tries; }
+
+        /// <summary>The Captain's answer to what the Engineer said: which radio clip to play, and what he understood.</summary>
+        [System.Serializable]
+        public class AgentReply { public int u, cover, comms, backup, done; public string ctx, clip, intent, heard; }
+        readonly ConcurrentQueue<string> replies = new ConcurrentQueue<string>();
         static readonly List<Pending> pending = new List<Pending>();
         static int mid, seq, lastEventMs;
         static bool ended;
@@ -102,6 +109,7 @@ namespace StealthMode
         // one message from the relay, from either transport (UDP thread or the Bluetooth poll): an ack or a heart-rate reading
         void Handle(string msg)
         {
+            if (msg.Contains("\"agent\"")) { replies.Enqueue(msg); return; }
             if (msg.Contains("\"ack\""))
             {
                 int n = Field(msg, "\"n\":");
@@ -159,6 +167,30 @@ namespace StealthMode
             }
         }
 
+        /// <summary>The next answer for this exchange, or null. TakeReply(null) just empties the queue.</summary>
+        public static AgentReply TakeReply(string ctx)
+        {
+            if (I == null) return null;
+            while (I.replies.TryDequeue(out var json))
+            {
+                if (ctx == null) continue;
+                var r = JsonUtility.FromJson<AgentReply>(json);
+                if (r.ctx == ctx) return r;
+            }
+            return null;
+        }
+
+        /// <summary>One frame of the Engineer's voice for the Captain: binary, best effort, no ack (a gap is just a gap).</summary>
+        public static void Audio(byte[] frame)
+        {
+            if (I == null || MissionStart < 0 || ended) return;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (I.ble != null && I.ble.Call<bool>("isConnected")) { I.ble.Call("sendAudio", System.Convert.ToBase64String(frame)); return; }
+#endif
+            if (I.tx == null) return;
+            try { I.tx.Send(frame, frame.Length, I.mac ?? new IPEndPoint(IPAddress.Broadcast, EventPort)); } catch { }
+        }
+
         /// <summary>Trigger pressed: t_ms = 0, and the relay wakes up (WHOOP connects, debrief session opens).</summary>
         public static void StartMission()
         {
@@ -179,11 +211,12 @@ namespace StealthMode
         /// One event of the debrief contract (web-app/src/lib/scenario.ts): type, actor, data as a JSON object.
         /// Numbered, resent until the relay acks it; the relay stamps it with the heart rate at that moment.
         /// </summary>
-        public static void Event(string type, string actor = null, string dataJson = "{}")
+        public static void Event(string type, string actor = null, string dataJson = "{}", float at = -1f)
         {
             if (I == null || MissionStart < 0 || ended) return;
             int tMs = Mathf.Max(lastEventMs, Mathf.RoundToInt((Time.time - MissionStart) * 1000f));   // never earlier than the last event (the clock is gone at shutdown)
             lastEventMs = tMs;
+            if (at >= 0) tMs = Mathf.RoundToInt((at - MissionStart) * 1000f);   // something that started earlier (a radio call), logged when it finished
             var a = actor == null ? "null" : "\"" + actor + "\"";
             var p = new Pending
             {

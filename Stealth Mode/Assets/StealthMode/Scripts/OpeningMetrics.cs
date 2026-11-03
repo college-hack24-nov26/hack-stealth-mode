@@ -33,7 +33,18 @@ namespace StealthMode
         public static float Beat6Time = -1, ReportLatency = -1, FirstGrabTime = -1, SafeTime = -1, OpenSeconds, Beat6ExposedSeconds, DragMetres;
         public static int OpenShots, Grabs, ShotsAfterCover = -1;
         public static bool ReportPrompted;
-        public static string FailReason;
+        public static string FailReason, ReportText;
+        public static bool ReportClear;
+        // beat 7: device neutralised, sitrep out loud
+        public static float BombTime = -1, SitrepLatency = -1;
+        public static bool SitrepPrompted, SitrepCover, SitrepComms, SitrepBackup;
+        public static int SitrepFollowUps;
+        public static string SitrepText;
+        // beat 8 and the end
+        public static float SweepTime = -1, ClearTime = -1, FinishTime = -1;
+        public static int FriendlyHits;
+        public static bool Success;
+        public static string EndReason;
 
         public static void Reset()
         {
@@ -45,13 +56,18 @@ namespace StealthMode
             Beat5Time = TripTime = LandingDistance = -1; CoverShots = CoverHits = 0; VoiceDuringAdvance = false;
             Beat6Time = ReportLatency = FirstGrabTime = SafeTime = -1; OpenSeconds = Beat6ExposedSeconds = DragMetres = 0;
             OpenShots = Grabs = 0; ShotsAfterCover = -1; ReportPrompted = false; FailReason = null;
+            ReportText = null; ReportClear = false;
+            BombTime = SitrepLatency = SweepTime = ClearTime = FinishTime = -1;
+            SitrepPrompted = SitrepCover = SitrepComms = SitrepBackup = Success = false;
+            SitrepFollowUps = FriendlyHits = 0; SitrepText = EndReason = null;
         }
 
-        public static void RecordShot(string target, string part, float distance)
+        public static void RecordShot(string target, string part, float distance, bool friendly = false)
         {
             if (FirstShotTime < 0) FirstShotTime = Time.time;
+            if (friendly) FriendlyHits++;
             Shots.Add(new Shot { t = Time.time, target = target, part = part, distance = distance });
-            HeartLink.Event("shot", "engineer", $"{{\"hit\":{(target != null ? "true" : "false")},\"target\":{(target == null ? "null" : HeartLink.Str(target))},\"part\":{(part == null ? "null" : HeartLink.Str(part))}}}");
+            HeartLink.Event("shot", "engineer", $"{{\"hit\":{(target != null ? "true" : "false")},\"target\":{(target == null ? "null" : HeartLink.Str(target))},\"part\":{(part == null ? "null" : HeartLink.Str(part))},\"friendly_risk\":{(friendly ? "true" : "false")}}}");
         }
 
         public static void RecordHeart(int hr, int level) => Heart.Add(new Beat { t = Time.time, hr = hr, level = level, phase = Phase });
@@ -93,7 +109,12 @@ namespace StealthMode
             float FromBlast(float t) => t < 0 || Beat6Time < 0 ? -1 : t - Beat6Time;
             sb.Append($"  \"beat6\": {{\"report_after_blast_s\": {F(ReportLatency)}, \"report_prompted\": {B(ReportPrompted)}, \"first_grab_s\": {F(FromBlast(FirstGrabTime))}, " +
                       $"\"comms_in_cover_s\": {F(FromBlast(SafeTime))}, \"grabs\": {Grabs}, \"drag_m\": {F(DragMetres)}, \"open_without_comms_s\": {F(OpenSeconds)}, " +
-                      $"\"exposed_s\": {F(Beat6ExposedSeconds)}, \"shots_from_open\": {OpenShots}, \"shots_after_cover\": {(ShotsAfterCover < 0 ? "null" : ShotsAfterCover.ToString())}, \"failed\": {S(FailReason)}}},\n  \"kills\": {{");
+                      $"\"exposed_s\": {F(Beat6ExposedSeconds)}, \"shots_from_open\": {OpenShots}, \"shots_after_cover\": {(ShotsAfterCover < 0 ? "null" : ShotsAfterCover.ToString())}, \"failed\": {S(FailReason)}, " +
+                      $"\"report_text\": {HeartLink.Str(ReportText)}, \"report_clear\": {B(ReportClear)}}},\n");
+            sb.Append($"  \"beat7\": {{\"device_s\": {F(Rel(BombTime))}, \"sitrep_after_call_s\": {F(SitrepLatency)}, \"prompted\": {B(SitrepPrompted)}, \"said_cover\": {B(SitrepCover)}, " +
+                      $"\"said_comms\": {B(SitrepComms)}, \"said_backup\": {B(SitrepBackup)}, \"follow_ups\": {SitrepFollowUps}, \"text\": {HeartLink.Str(SitrepText)}}},\n");
+            sb.Append($"  \"beat8\": {{\"sweep_s\": {F(Rel(SweepTime))}, \"clear_s\": {F(Rel(ClearTime))}, \"friendly_hits\": {FriendlyHits}}},\n");
+            sb.Append($"  \"outcome\": {S(Success ? "success" : FinishTime < 0 ? null : "failed")}, \"end_reason\": {HeartLink.Str(EndReason)}, \"end_s\": {F(Rel(FinishTime))},\n  \"kills\": {{");
             int i = 0;
             foreach (var kv in KillTimes)
                 sb.Append($"{(i++ > 0 ? ", " : "")}\"{kv.Key}\": {{\"t\": {F(Rel(kv.Value))}, \"by\": \"{KilledBy[kv.Key]}\"}}");

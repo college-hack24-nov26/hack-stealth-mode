@@ -18,6 +18,9 @@ Two transports carry the same JSON: Bluetooth LE (the headset; this Mac advertis
 venue Wi-Fi does not matter) and UDP 5006/5005 over Wi-Fi (the Unity editor, or a headset on a friendly network). Replies go
 back over the channel the message came in on.
 
+The same channel carries the Engineer's voice while the Captain is listening (binary frames starting 0xA0, see
+VoiceActivity.cs): captain_agent.py turns each finished call into a reply {"type":"agent","clip":..} the Quest plays.
+
 Events carry a per-mission sequence number n: the relay acks each one (the Quest resends until acked), drops
 duplicates, and waits for gaps before closing, so nothing is lost or doubled. Debrief credentials are read from
 web-app/.env.local. Logs: mac/sessions/relay.log, whoop_*.csv, events_*.csv.
@@ -27,9 +30,13 @@ web-app/.env.local. Logs: mac/sessions/relay.log, whoop_*.csv, events_*.csv.
 """
 import argparse, asyncio, csv, json, math, os, random, signal, socket, statistics, time, urllib.error, urllib.request
 
+from captain_agent import Captain, Ear
+
 HR_SERVICE = "0000180d-0000-1000-8000-00805f9b34fb"
 HR_MEASUREMENT = "00002a37-0000-1000-8000-00805f9b34fb"
 HR_PORT, EVENT_PORT = 5005, 5006
+AUDIO = b"\xa0"          # first byte of a voice frame
+CALL_GAP_S = 0.8         # no frames for this long: the call is over even if its last frame was lost
 BASELINE_S = 45          # resting window: the first seconds of the mission (briefing)
 LEVELS = (8, 18, 30)     # bpm above baseline for stress level 1, 2, 3
 
@@ -110,8 +117,8 @@ if HAVE_BLE:
 class MacBle:
     """The Mac end of the Bluetooth link. Needs the Bluetooth permission Terminal.app already has for the WHOOP."""
 
-    def __init__(self, on_message, on_link):
-        self.on_message, self.on_link = on_message, on_link      # on_message(dict); on_link(bool)
+    def __init__(self, on_message, on_link, on_audio):
+        self.on_message, self.on_link, self.on_audio = on_message, on_link, on_audio      # on_message(dict); on_link(bool); on_audio(bytes)
         self.subscribed = False
         self.pending = []
         self.notify_char = None
@@ -150,8 +157,12 @@ class MacBle:
 
     def on_writes(self, mgr, reqs):
         for r in reqs:
+            raw = bytes(r.value() or b"")
+            if raw[:1] == AUDIO:
+                self.on_audio(raw)
+                continue
             try:
-                msg = json.loads(bytes(r.value() or b"").decode())
+                msg = json.loads(raw.decode())
             except ValueError:
                 continue
             self.on_message(msg)
@@ -227,6 +238,7 @@ class Mission:
         self.task = None
         self.lock = asyncio.Lock()
         self.window, self.baseline, self.hr = [], None, 0
+        self.captain, self.calls, self.answered = Captain(), {}, set()     # u -> {buf, ctx, src, last}
         self.bad_rr = self.n_hr = self.n_ev = 0
         stamp = time.strftime("%Y%m%d_%H%M%S")
         self.hr_f = open(os.path.join(OUT, f"whoop_{stamp}.csv"), "w", newline="", buffering=1)
@@ -248,9 +260,11 @@ class Relay:
         self.rx.setblocking(False)
         self.quest = a.quest
         self.mission = None
+        self.ear = Ear(log)
         self.ble = None
         if HAVE_BLE and not a.no_ble:
-            self.ble = MacBle(lambda m: asyncio.ensure_future(self.on_packet(("ble", None), m)), lambda up: None)
+            self.ble = MacBle(lambda m: asyncio.ensure_future(self.on_packet(("ble", None), m)), lambda up: None,
+                              lambda raw: self.on_audio(("ble", None), raw))
         elif not a.no_ble:
             log("pyobjc not installed: Bluetooth link off (pip install pyobjc-framework-CoreBluetooth)")
 
@@ -259,6 +273,9 @@ class Relay:
         loop = asyncio.get_running_loop()
         while True:
             data, (ip, _) = await loop.sock_recvfrom(self.rx, 8192)
+            if data[:1] == AUDIO:
+                self.on_audio(("udp", ip), data)
+                continue
             try:
                 m = json.loads(data.decode())
             except ValueError:
@@ -320,6 +337,53 @@ class Relay:
             log(f"event  {ev:<12} {m.get('actor') or '':<12} t={t_ms / 1000:7.1f}s  HR {mi.hr or '-'}")
         if ev == "mission_end":
             asyncio.create_task(self.finish(mi, m))
+
+    # ------------------------------------------------------------ the Engineer's voice
+    def on_audio(self, src, raw):
+        """[0xA0, utterance, flags (bit 0 last, bits 1-2 context), frame number, mu-law...]"""
+        mi = self.mission
+        if mi is None or len(raw) < 4 or raw[1] in mi.answered:
+            return
+        u, flags = raw[1], raw[2]
+        mi.last_rx = time.time()
+        call = mi.calls.setdefault(u, {"buf": bytearray(), "ctx": "sitrep" if flags >> 1 else "report", "src": src})
+        call["buf"] += raw[4:]
+        call["last"] = time.time()
+        if flags & 1:
+            asyncio.ensure_future(self.answer(mi, u))
+
+    async def calls_loop(self):
+        while True:
+            await asyncio.sleep(0.2)
+            mi = self.mission
+            if mi:
+                for u, c in list(mi.calls.items()):
+                    if time.time() - c["last"] > CALL_GAP_S:
+                        await self.answer(mi, u)
+
+    async def answer(self, mi, u):
+        call = mi.calls.pop(u, None)
+        if call is None:
+            return
+        mi.answered.add(u)
+        t0 = time.time()
+        save = os.path.join(OUT, f"voice_{time.strftime('%Y%m%d_%H%M%S')}_{call['ctx']}.wav")
+        try:
+            text = await asyncio.to_thread(self.ear.hear, bytes(call["buf"]), save)
+            r = mi.captain.answer(call["ctx"], text)
+        except Exception as e:          # a bad call must never take the relay down: the headset falls back on its own
+            log(f"voice error: {e!r}")
+            return
+        heard = r["heard"].encode("ascii", "ignore").decode()
+        out = {**r, "type": "agent", "u": u, "ctx": call["ctx"]}
+        while True:                     # the reply must fit one Bluetooth packet
+            out["heard"] = heard
+            if len(json.dumps(out)) <= 235:
+                break
+            heard = heard[:-8]
+        self.reply(call["src"], out)
+        log(f"radio  {call['ctx']:<7} {len(call['buf']) / 8000:4.1f} s of voice, answered in {time.time() - t0:.1f} s: "
+            f"\"{r['heard']}\" -> {r['intent']} {r['clip']}")
 
     # ------------------------------------------------------------ mission lifecycle
     def start_mission(self, m, src):
@@ -501,7 +565,7 @@ class Relay:
     async def run(self):
         stop = asyncio.Event()
         asyncio.get_running_loop().add_signal_handler(signal.SIGINT, stop.set)
-        coros = [self.listen(), self.uploader(), self.watchdog()] + ([self.ble.run()] if self.ble else [])
+        coros = [self.listen(), self.uploader(), self.watchdog(), self.calls_loop()] + ([self.ble.run()] if self.ble else [])
         tasks = [asyncio.create_task(c) for c in coros]
         log("Stealth Mode relay ready. Idle until the Engineer presses the RIGHT TRIGGER in the headset. (Ctrl-C to quit)")
         await stop.wait()
