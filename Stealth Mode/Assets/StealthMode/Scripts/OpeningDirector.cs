@@ -10,12 +10,15 @@ namespace StealthMode
     /// Enemy-3 sprints into the warehouse to raise the alarm -> hold.
     /// Second half (built one beat at a time, see the approved beat plan):
     /// Beat 1: the runner and the five inside burst out of the front door to firing positions and pin down Shipment-1.
+    /// Beat 2: Comms (returning fire beside the Engineer) tells Lead the back is clear; Captain and Doc walk the west flank in
+    /// low ready, through the cut in the west fence, stack on the back door and go in for the device.
     /// The run starts only when the Engineer presses the right trigger, so the rifle is already on his controller.
     /// </summary>
     public class OpeningDirector : MonoBehaviour
     {
         public EnemyAI enemy1, enemy2, enemy3, enemy4, enemy5;
         public EnemyAI[] insiders;          // Enemy-6..10, guarding the bomb
+        public SoldierRig captain, paramedic;
         public SoldierRig comms;
         public Transform sniper1Muzzle, sniper2Muzzle;
         public PlayerRifle player;
@@ -25,7 +28,40 @@ namespace StealthMode
         public bool autoPlay;               // editor play-test: the rig aims and fires by itself
 
         string phase = "gate";
-        public string Phase { get => phase; private set { phase = value; OpeningMetrics.Phase = value; HeartLink.Event("phase:" + value); } }
+        public string Phase
+        {
+            get => phase;
+            private set
+            {
+                phase = value; OpeningMetrics.Phase = value;
+                // the debrief's phase ids (web-app/src/lib/scenario.ts)
+                var id = value == "briefing" ? "briefing" : value == "engagement" ? "contact" : value.StartsWith("beat1") ? "escalation" : null;
+                if (id != null && id != sentPhase) { sentPhase = id; HeartLink.Event("phase", "system", $"{{\"id\":\"{id}\"}}"); }
+            }
+        }
+        string sentPhase;
+
+        // what each radio clip says (same text as assets_src/tools/gen_audio.py), for the debrief transcript
+        static readonly System.Collections.Generic.Dictionary<string, string> RadioText = new System.Collections.Generic.Dictionary<string, string>
+        {
+            ["r01_captain"] = "Alpha team, this is Alpha Lead. Doc and I are in position at the rear. All call signs, hold fire.",
+            ["r02_captain"] = "Engineer, Comms. Your targets: watchtower two, and the door guard on the right. Wait for Sniper One.",
+            ["r03_sniper1"] = "Sniper One. Tango, rear left, near the back door. I have the shot.",
+            ["r04_captain_mark"] = "Sniper One, on my mark. Three. Two. One. Mark.",
+            ["r05_sniper1_down"] = "Sniper One. Tango down.",
+            ["r06_captain_engage"] = "Engineer, engage! Engage!",
+            ["r07_sniper2_runner"] = "Sniper Two! Runner, front door, left side. He's inside! He's inside!",
+            ["r08_comms_tower"] = "Comms. Left tower is down.",
+            ["r09_sniper2_down"] = "Sniper Two. Tango down.",
+            ["r10_captain_hold"] = "They know we're here. Engineer, Comms, hold that cover. Doc, with me. Moving to the back door.",
+            ["r11_comms_backdoor"] = "Alpha Lead, Comms. All six tangos are out front, on us. Back door is clear. Go now. Take the device.",
+            ["r12_captain_copy"] = "Copy, Comms. Doc, on me. Moving.",
+            ["r13_captain_in"] = "Alpha Lead. We're in. Moving to the device.",
+        };
+
+        static string ActorOf(string clip) =>
+            clip.Contains("captain") ? "captain" : clip.Contains("sniper1") ? "sniper_1" : clip.Contains("sniper2") ? "sniper_2" :
+            clip.Contains("comms") ? "communicator" : clip.Contains("doc") ? "paramedic" : "system";
         bool narrationDone;
 
         IEnumerator Start()
@@ -35,6 +71,7 @@ namespace StealthMode
             if (comms) { comms.stance = SoldierRig.Stance.Kneel; comms.aiming = true; comms.aimPoint = enemy4.transform.position + Vector3.up * 1.2f; }
             CombatFx.I.Play("wind_loop", player.cam.transform.position, 0.35f, 50f, spatial: false).loop = true;
             if (!autoPlay) yield return StartGate();
+            HeartLink.StartMission();
             Phase = "briefing";
             yield return new WaitForSeconds(2f);
 
@@ -161,12 +198,133 @@ namespace StealthMode
                 squad[i].player = player.cam.transform;
                 squad[i].Assault(path, stance, 0.15f + i * 0.45f);
             }
-            StartCoroutine(Exposure(squad.ToArray(), "beat1_breakout"));
-            HeartLink.Event("beat1_breakout");
+            StartCoroutine(Exposure(squad.ToArray(), "beat"));
+            HeartLink.Event("enemy_wave", "enemy", $"{{\"count\":{squad.Count}}}");
             Debug.Log("[StealthMode] BEAT 1: " + squad.Count + " enemies out");
-            yield return new WaitForSeconds(30f);
-            OpeningMetrics.Save();      // Beat 1 snapshot; the firefight carries on until beat 2 exists
+            yield return new WaitForSeconds(9f);   // they reach cover and settle into firing
+            yield return BeatTwo(squad);
         }
+
+        // ---------------------------------------------------------- beat 2: Captain and Doc go for the back door
+        // West flank: out of the cover west of the compound, through the panel cut in the west fence, between Shipment-8
+        // and Shipment-3, along the north side past Enemy-5's body, stack on the back door, in.
+        static readonly Vector3[] FlankRoute =
+        {
+            new Vector3(-47.6f, 0, 11.6f), new Vector3(-46f, 0, 12f), new Vector3(-42f, 0, 11f), new Vector3(-34.5f, 0, 11f),
+            new Vector3(-34.5f, 0, 18.5f), new Vector3(-28f, 0, 19.5f), new Vector3(-18f, 0, 19.5f), new Vector3(-8f, 0, 13.5f),
+            new Vector3(-3.4f, 0, 11.6f), new Vector3(-2f, 0, 11.0f),
+        };
+        static readonly Vector3[] IntoWarehouse = { new Vector3(-2f, 0.35f, 8.6f), new Vector3(-2.2f, 0.35f, 5.5f), new Vector3(-1.2f, 0.35f, 2.2f) };
+        bool captainInside;
+
+        IEnumerator BeatTwo(System.Collections.Generic.List<EnemyAI> squad)
+        {
+            Phase = "beat2_flank";
+            StartCoroutine(CommsSuppress(squad));
+            yield return Say("r11_comms_backdoor", comms ? comms.Head : null);
+            yield return new WaitForSeconds(0.5f);
+            yield return Say("r12_captain_copy");
+            if (captain && paramedic)
+            {
+                // single file, ~3 m apart; Doc moves off as the Captain clears his first stride
+                StartCoroutine(Flank(captain, 0f, true));
+                StartCoroutine(Flank(paramedic, 2.0f, false));
+                while (!captainInside) yield return null;
+            }
+            yield return Say("r13_captain_in");
+            Debug.Log("[StealthMode] BEAT 2: Captain + Doc inside");
+            OpeningMetrics.Save();      // snapshot; the firefight out front carries on into beat 3
+        }
+
+        IEnumerator Flank(SoldierRig rig, float delay, bool lead)
+        {
+            yield return new WaitForSeconds(delay);
+            rig.aiming = true;
+            yield return Walk(rig, FlankRoute, 1.5f);
+            // stack on the door: crouch, a breath, then in
+            rig.stance = SoldierRig.Stance.Crouch;
+            rig.aimPoint = rig.transform.position + new Vector3(0, 1.1f, -4f);
+            yield return new WaitForSeconds(lead ? 2.2f : 1.0f);
+            yield return Walk(rig, IntoWarehouse, 1.3f, lead ? 0f : 0.9f);
+            if (lead) captainInside = true;
+            rig.stance = SoldierRig.Stance.Kneel;   // at the device
+            rig.aimPoint = rig.transform.position + rig.transform.forward * 0.8f;
+        }
+
+        /// <summary>Tactical walk along a path at ground speed, turning like a person (not on the spot), feet on the ground.</summary>
+        IEnumerator Walk(SoldierRig rig, Vector3[] path, float speed, float stopShort = 0f)
+        {
+            rig.walkSpeed = speed;
+            rig.stance = SoldierRig.Stance.Patrol;
+            var t = rig.transform;
+            for (int i = 0; i < path.Length; i++)
+            {
+                bool last = i == path.Length - 1;
+                while (true)
+                {
+                    var to = path[i] - t.position; to.y = 0;
+                    if (to.magnitude < (last ? 0.15f + stopShort : 0.5f)) break;
+                    var want = Quaternion.LookRotation(to);
+                    t.rotation = Quaternion.RotateTowards(t.rotation, want, 160f * Time.deltaTime);
+                    // slow into tight turns instead of moonwalking round them
+                    float turn = Quaternion.Angle(t.rotation, want);
+                    t.position += t.forward * speed * Mathf.Lerp(1f, 0.35f, Mathf.InverseLerp(20f, 90f, turn)) * Time.deltaTime;
+                    Ground(t, path[i].y);
+                    yield return null;
+                }
+            }
+        }
+
+        static void Ground(Transform t, float hint)
+        {
+            var hits = Physics.RaycastAll(t.position + Vector3.up * 1.2f, Vector3.down, 3f, ~0, QueryTriggerInteraction.Ignore);
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            foreach (var h in hits)
+            {
+                if (h.collider.GetComponent<Hitbox>() || h.collider.transform.IsChildOf(t)) continue;
+                if (h.point.y > t.position.y + 0.45f) continue;   // not onto a crate or barrel
+                t.position = new Vector3(t.position.x, h.point.y, t.position.z);
+                return;
+            }
+            t.position = new Vector3(t.position.x, hint, t.position.z);
+        }
+
+        // Comms doesn't sit still under fire: he picks a muzzle flash, waits for a gap, and puts 2-4 rounds toward it.
+        // Suppression, not kills (his kill is beat 4): rounds land around the target, impacts where they really land.
+        IEnumerator CommsSuppress(System.Collections.Generic.List<EnemyAI> squad)
+        {
+            if (!comms) yield break;
+            while (Phase.StartsWith("beat"))
+            {
+                yield return new WaitForSeconds(Random.Range(2.5f, 4.5f));
+                if (commsTalking || comms.Dead || !comms.Muzzle) continue;
+                EnemyAI target = null;
+                foreach (var e in squad) if (!e.Dead && !e.Running && e.rig.Chest && (target == null || Random.value < 0.4f)) target = e;
+                if (target == null) continue;
+                comms.aimPoint = target.rig.Chest.position;
+                yield return new WaitForSeconds(0.55f);
+                int n = Random.Range(2, 5);
+                for (int i = 0; i < n && !commsTalking; i++)
+                {
+                    var m = comms.Muzzle;
+                    var aim = target.rig.Chest.position + Random.insideUnitSphere * 0.9f + Vector3.up * 0.25f;
+                    var dir = (aim - m.position).normalized;
+                    var end = m.position + dir * 300f;
+                    foreach (var h in Physics.RaycastAll(m.position + dir * 0.4f, dir, 300f, ~0, QueryTriggerInteraction.Ignore))
+                    {
+                        if (h.collider.transform.IsChildOf(comms.transform) || h.collider.GetComponent<Hitbox>()) continue;
+                        if (Vector3.Distance(h.point, m.position) > Vector3.Distance(end, m.position)) continue;
+                        end = h.point;
+                    }
+                    CombatFx.I.MuzzleFlash(m);
+                    CombatFx.I.Play("ak_close", m.position, 0.95f, 8f);
+                    if (Random.value < 0.4f) CombatFx.I.Tracer(m.position, end);
+                    if (end != m.position + dir * 300f) CombatFx.I.Impact(end, -dir, false);
+                    yield return new WaitForSeconds(Random.Range(0.11f, 0.16f));
+                }
+            }
+        }
+        bool commsTalking;
 
         IEnumerator Narration()
         {
@@ -212,7 +370,7 @@ namespace StealthMode
             // exposed = an armed, living enemy has a clear line of sight to the Engineer's head
             var head = player.cam.transform;
             const float step = 0.1f;
-            while (Phase == during)
+            while (Phase.StartsWith(during))
             {
                 foreach (var e in shooters)
                 {
@@ -231,14 +389,24 @@ namespace StealthMode
             }
         }
 
-        IEnumerator Say(string clip)
+        IEnumerator Say(string clip, Transform speakerNearby = null)
         {
             var c = CombatFx.I.Clip("Radio/" + clip);
             if (c == null) { Debug.LogWarning("[StealthMode] missing radio clip " + clip); yield break; }
             while (radio.isPlaying) yield return null;
+            if (speakerNearby)
+            {
+                // a man two metres away: his own voice in the air a beat before the same words come through the earpiece
+                commsTalking = true;
+                CombatFx.I.Play("Voice/" + clip, speakerNearby.position, 1f, 1.2f);
+                yield return new WaitForSeconds(0.12f);
+            }
             radio.clip = c; radio.Play();
             Debug.Log("[StealthMode] radio: " + clip);
+            int endMs = Mathf.RoundToInt((Time.time + c.length - HeartLink.MissionStart) * 1000f);
+            HeartLink.Event("radio", ActorOf(clip), $"{{\"transcript\":{HeartLink.Str(RadioText.TryGetValue(clip, out var tx) ? tx : clip)},\"end_ms\":{endMs}}}");
             yield return new WaitForSeconds(c.length + 0.35f);
+            commsTalking = false;
         }
 
         // ---------------------------------------------------------- editor play-test

@@ -618,6 +618,14 @@ namespace StealthMode.EditorTools
         // particle materials as assets in Resources so their shader ships in the build (CombatFx loads them)
         static void FxMaterials()
         {
+            var uiDir = Root + "/Resources/UI";
+            Directory.CreateDirectory(uiDir);
+            if (!AssetDatabase.LoadAssetAtPath<Material>(uiDir + "/UiUnlit.mat"))
+            {
+                var ui = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+                SetSurface(ui, Surface.Transparent, true);
+                AssetDatabase.CreateAsset(ui, uiDir + "/UiUnlit.mat");
+            }
             var dir = Root + "/Resources/Fx";
             Directory.CreateDirectory(dir);
             var shader = Shader.Find(StealthMode.CombatFx.ParticleShader);
@@ -704,6 +712,8 @@ namespace StealthMode.EditorTools
             xo.CameraYOffset = 1.6f;   // only used if the headset has no floor-level space
             camGo.AddComponent<UnityEngine.XR.ARFoundation.ARCameraManager>();
             new GameObject("AR Session").AddComponent<UnityEngine.XR.ARFoundation.ARSession>();
+            var slider = origin.AddComponent<StealthMode.OpacitySlider>();
+            slider.cam = cam; slider.trackingSpace = offset;
             var mixed = origin.AddComponent<StealthMode.MixedReality>();
             mixed.cam = cam;
             camGo.AddComponent<UnityEngine.XR.ARFoundation.ARCameraBackground>();
@@ -719,6 +729,7 @@ namespace StealthMode.EditorTools
             dir.sniper1Muzzle = MuzzleOf(s1); dir.sniper2Muzzle = MuzzleOf(s2);
             dir.player = pr; dir.radio = radio; dir.alarm = alarm;
             dir.insiders = insiders;
+            dir.captain = cap.GetComponent<StealthMode.SoldierRig>(); dir.paramedic = doc.GetComponent<StealthMode.SoldierRig>();
             dir.gameObject.AddComponent<StealthMode.HeartLink>();
 
             // light probes over the compound for characters and props
@@ -800,6 +811,13 @@ namespace StealthMode.EditorTools
                     var p = a + dir * (step * (i + 0.5f));
                     bool gate = side == 0 && Mathf.Abs(p.x - -10f) < step * 0.6f;
                     bool breach = side == 0 && Mathf.Abs(p.x - 18f) < step * 0.5f;
+                    bool westCut = side == 3 && Mathf.Abs(p.z - 12f) < step * 0.5f;   // Captain + Doc's way in (beat 2)
+                    if (westCut)
+                    {
+                        var cutW = Place($"{PropDir}/modular_chainlink_fence.fbx", Ground(p + new Vector3(-1.6f, 0.05f, 0.4f)), yaw + 8f, fenceRoot, "West cut (panel)");
+                        cutW.transform.rotation = Quaternion.Euler(0, yaw + 8f, 0) * Quaternion.Euler(alongX ? -84f : 0, 0, alongX ? 0 : 84f);
+                        continue;
+                    }
                     if (gate)
                     {
                         Place($"{PropDir}/modular_chainlink_fence_door_frame.fbx", Ground(p), yaw, fenceRoot, "Gate frame");

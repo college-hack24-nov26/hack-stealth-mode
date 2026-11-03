@@ -85,12 +85,28 @@ namespace StealthMode
             }
         }
 
-        /// <summary>Mission event to the Mac (stamped there with the heart rate at that moment).</summary>
-        public static void Event(string name)
+        /// <summary>Mission start (t_ms = 0): from here on every event is timed from this moment and the Mac opens a debrief session.</summary>
+        public static float MissionStart { get; private set; } = -1f;
+
+        public static void StartMission()
         {
-            if (I == null) return;
-            I.Send($"{{\"type\":\"event\",\"name\":\"{name}\",\"t\":{Time.time.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)},\"hr\":{I.hr}}}", I.mac == null);
+            MissionStart = Time.time;
+            Event("mission_start", "system", "{}");
         }
+
+        /// <summary>
+        /// One event of the debrief contract (web-app/src/lib/scenario.ts): type, actor, data as a JSON object.
+        /// The Mac stamps it with the heart rate at that moment and uploads it.
+        /// </summary>
+        public static void Event(string type, string actor = null, string dataJson = "{}")
+        {
+            if (I == null || MissionStart < 0) return;
+            int tMs = Mathf.RoundToInt((Time.time - MissionStart) * 1000f);
+            var a = actor == null ? "null" : "\"" + actor + "\"";
+            I.Send($"{{\"type\":\"event\",\"ev\":\"{type}\",\"actor\":{a},\"t_ms\":{tMs},\"hr\":{I.hr},\"data\":{dataJson}}}", I.mac == null);
+        }
+
+        public static string Str(string s) => "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 
         void Send(string json, bool broadcast)
         {

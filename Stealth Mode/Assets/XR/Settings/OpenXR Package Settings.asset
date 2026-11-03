@@ -768,6 +768,28 @@ MonoBehaviour:
   targetOpenXRApiVersion: 
   required: 0
   customRuntimeLoaderName: 
+--- !u!114 &-1902160803164907012
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 94cf161e7784a4d3d85bbf43dc2a8daa, type: 3}
+  m_Name: SimultaneousHandsControllers Android
+  m_EditorClassIdentifier: Assembly-CSharp::StealthMode.SimultaneousHandsControllers
+  m_enabled: 1
+  nameUi: 'Meta: Simultaneous Hands and Controllers'
+  version: 1.0.0
+  featureIdInternal: com.stealthmode.feature.multimodal
+  openxrExtensionStrings: XR_META_simultaneous_hands_and_controllers
+  company: Stealth Mode
+  priority: 0
+  targetOpenXRApiVersion: 
+  required: 0
+  customRuntimeLoaderName: 
 --- !u!114 &-1216307925764373886
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -807,6 +829,7 @@ MonoBehaviour:
   - {fileID: -2329973096838698276}
   - {fileID: -4585037154173455946}
   - {fileID: 1365962676295797857}
+  - {fileID: -1902160803164907012}
   - {fileID: 4523367916246577927}
   - {fileID: 2856299230317775021}
   - {fileID: 695933808743811049}

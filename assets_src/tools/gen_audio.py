@@ -29,6 +29,10 @@ LINES = [
     ("r08_comms_tower", "comms", "Comms. Left tower is down."),
     ("r09_sniper2_down", "sniper2", "Sniper Two. Tango down."),
     ("r10_captain_hold", "captain", "They know we're here. Engineer, Comms, hold that cover. Doc, with me. Moving to the back door."),
+    # beat 2
+    ("r11_comms_backdoor", "comms", "Alpha Lead, Comms. All six tangos are out front, on us. Back door is clear. Go now. Take the device."),
+    ("r12_captain_copy", "captain", "Copy, Comms. Doc, on me. Moving."),
+    ("r13_captain_in", "captain", "Alpha Lead. We're in. Moving to the device."),
 ]
 
 
@@ -94,6 +98,10 @@ def radio_line(name, who, text):
                         f"asetrate=22050*{pitch},aresample={SR}", "-ac", "1", wav], check=True)
         x, _ = read(wav)
     x = norm(x, 0.8)
+    if who == "comms":
+        # Comms kneels two metres from the Engineer: his own voice is heard in the air too, unfiltered
+        os.makedirs(os.path.join(OUT, "Voice"), exist_ok=True)
+        write(os.path.join(OUT, "Voice", name + ".wav"), norm(x, 0.9))
     x = fft_band(x, 380, 3100)                      # handset band
     x = np.tanh(x * 3.2) / np.tanh(3.2)             # transmitter overdrive
     x = fft_band(x, 300, 3400)
@@ -191,6 +199,13 @@ def alarm(sec=8):
 
 
 def main():
+    import sys
+    if "--lines" in sys.argv:   # only (re)make the named radio lines, e.g. --lines r11_comms_backdoor,r12_captain_copy
+        want = sys.argv[sys.argv.index("--lines") + 1].split(",")
+        for name, who, text in LINES:
+            if name in want:
+                radio_line(name, who, text); print("radio", name)
+        return
     for name, who, text in LINES:
         radio_line(name, who, text)
         print("radio", name)

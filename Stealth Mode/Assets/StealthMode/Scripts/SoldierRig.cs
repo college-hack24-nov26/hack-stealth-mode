@@ -10,7 +10,7 @@ namespace StealthMode
     [RequireComponent(typeof(Animator))]
     public class SoldierRig : MonoBehaviour
     {
-        public enum Stance { Stand, Crouch, Kneel, Prone, Run }
+        public enum Stance { Stand, Crouch, Kneel, Prone, Run, Patrol }
 
         public Stance stance = Stance.Stand;
         public Transform rifle;            // rifle root = pistol grip; children "SupportHand", "Stock", "Muzzle"
@@ -18,6 +18,7 @@ namespace StealthMode
         public bool aiming = true;
         [Range(0, 1)] public float breathing = 1f;
         public float runSpeed = 5.5f;
+        public float walkSpeed = 1.5f;     // Patrol: ground speed the gait cadence is matched to
 
         public bool Dead { get; private set; }
         public Transform Muzzle { get; private set; }
@@ -142,6 +143,16 @@ namespace StealthMode
                     lKnee = rKnee = Vector3.down;
                     lToeDir = rToeDir = new Vector3(0, -1, -0.35f);
                     break;
+                case Stance.Patrol:   // tactical walk: knees soft, hips low, short heel-to-toe steps, torso over the rifle
+                {
+                    runPhase += Time.deltaTime * walkSpeed * 4.4f;
+                    float ws = Mathf.Sin(runPhase), wc = Mathf.Cos(runPhase);
+                    hipY = hipH - 0.11f + 0.012f * Mathf.Abs(wc); pelvis = 12; bend = 11;
+                    lf = new Vector3(-0.11f, ankle + 0.07f * Mathf.Max(0, wc), 0.27f * ws);
+                    rf = new Vector3(0.11f, ankle + 0.07f * Mathf.Max(0, -wc), -0.27f * ws);
+                    lKnee = new Vector3(-0.1f, 0, 1); rKnee = new Vector3(0.1f, 0, 1);
+                    break;
+                }
                 case Stance.Run:
                     runPhase += Time.deltaTime * runSpeed * 1.35f;
                     float s = Mathf.Sin(runPhase), c = Mathf.Cos(runPhase);
@@ -179,6 +190,12 @@ namespace StealthMode
 
             Vector3 shoulder = rUpper.position + transform.right * -0.06f + transform.up * -0.02f;
             Vector3 aimDir;
+            if (stance == Stance.Patrol)
+            {
+                // low ready: stock stays in the shoulder pocket, muzzle ~30 degrees down along the walking line, eyes up
+                aiming = true;
+                aimPoint = shoulder + transform.forward * 4f - Vector3.up * 2.3f;
+            }
             if (aiming && stance != Stance.Run)
             {
                 aimDir = (aimPoint - shoulder).normalized;
@@ -198,7 +215,7 @@ namespace StealthMode
                 rifle.rotation = rot;
                 var stockOffset = stock ? rifle.InverseTransformPoint(stock.position) : new Vector3(0, 0.08f, -0.41f);
                 rifle.position = shoulder + rot * (-stockOffset) + rot * sway;
-                if (head)
+                if (head && stance != Stance.Patrol)
                 {
                     var look = Quaternion.FromToRotation(head.forward, Vector3.Lerp(head.forward, aimDir, 0.6f));
                     head.rotation = look * head.rotation;

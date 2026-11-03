@@ -31,6 +31,7 @@ namespace StealthMode
         {
             if (FirstShotTime < 0) FirstShotTime = Time.time;
             Shots.Add(new Shot { t = Time.time, target = target, part = part, distance = distance });
+            HeartLink.Event("shot", "engineer", $"{{\"hit\":{(target != null ? "true" : "false")},\"target\":{(target == null ? "null" : HeartLink.Str(target))},\"part\":{(part == null ? "null" : HeartLink.Str(part))}}}");
         }
 
         public static void RecordHeart(int hr, int level) => Heart.Add(new Beat { t = Time.time, hr = hr, level = level, phase = Phase });
@@ -39,6 +40,8 @@ namespace StealthMode
         {
             KillTimes[enemy] = Time.time;
             KilledBy[enemy] = by;
+            var actor = by == "Engineer" ? "engineer" : by == "Sniper-1" ? "sniper_1" : by == "Sniper-2" ? "sniper_2" : by == "Comms" ? "communicator" : by.ToLowerInvariant();
+            HeartLink.Event("enemy_down", actor, $"{{\"enemy\":{HeartLink.Str(enemy)}}}");
         }
 
         static string F(float v) => v < 0 ? "null" : v.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
