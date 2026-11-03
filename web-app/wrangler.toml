@@ -1,0 +1,7 @@
+# Static export served as Workers static assets (Cloudflare's successor to Pages).
+name = "stealth-mode-debrief"
+compatibility_date = "2026-10-01"
+
+[assets]
+directory = "./out"
+not_found_handling = "404-page"
