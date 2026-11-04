@@ -46,8 +46,8 @@ import whoop_relay as w
 w.HR_PORT, w.EVENT_PORT = {HR_PORT}, {EVENT_PORT}
 a = argparse.Namespace(quest=None, name="agent test", simulate=True, dry_run=True, no_ble=True, watchdog=30)
 asyncio.run(w.Relay(a).run())
-"""], stdout=subprocess.DEVNULL)
-time.sleep(25)      # the models load in the background
+"""], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+time.sleep(30)      # the models load in the background
 s.bind(("0.0.0.0", HR_PORT))
 s.settimeout(0.05)
 mid = random.randint(1, 2**31 - 1)
@@ -61,9 +61,11 @@ def event(ev, data=None):
 
 
 def wait_reply(timeout):
-    """-> (said, agent, frames of spoken audio)"""
-    end = time.time() + timeout
-    said = agent = None
+    """-> said, agent, speak message, seconds to the agent message, seconds to the first spoken frame, bytes of speech"""
+    t0 = time.time()
+    end = t0 + timeout
+    said = agent = speak = None
+    t_agent = t_voice = None
     audio = bytearray()
     while time.time() < end:
         try:
@@ -71,37 +73,49 @@ def wait_reply(timeout):
         except socket.timeout:
             continue
         if raw[:1] == b"\xb0":
+            t_voice = t_voice or time.time() - t0
             audio += raw[4:]
             if raw[2] & 1:
-                return said, agent, audio
+                break
             continue
         m = json.loads(raw.decode())
         if m.get("type") == "said":
             said = m["t"]
         elif m.get("type") == "agent":
-            agent = m
+            agent, t_agent = m, time.time() - t0
             if not m["tts"]:
-                return said, agent, audio
-    return said, agent, audio
+                break
+        elif m.get("type") == "speak":
+            speak = m
+            if not m["frames"]:
+                break
+    return said, agent, speak, t_agent, t_voice, audio
 
 
 event("mission_start")
 time.sleep(1)
 ok = True
+acks, fulls = [], []
 for u, (ctx, text, want) in enumerate(CASES, 1):
     a = ulaw(speak(text))
+    tail = ulaw(np.random.default_rng(u).normal(0, 0.002, 4800).astype(np.float32))      # 0.6 s of quiet: the headset's end of call
+    a += tail
     frames = [a[i:i + 240] for i in range(0, len(a), 240)]
+    t_start = time.time()
     for i, f in enumerate(frames):
         last = i == len(frames) - 1
         s.sendto(bytes([0xA0, u, (1 if last else 0) | (1 if ctx == "sitrep" else 0) << 1, i & 255]) + f, RELAY)
-        time.sleep(0.03)        # in real time, like the headset
-    t0 = time.time()
-    said, r, audio = wait_reply(20)
-    good = r is not None and r["intent"] == want and r["tts"] == 1 and len(audio) > 8000
+        time.sleep(max(0, t_start + (i + 1) * 0.03 - time.time()))      # in real time, like the headset
+    said, r, sp, t_agent, t_voice, audio = wait_reply(10)
+    good = r is not None and r["intent"] == want and sp is not None and sp["frames"] > 0 and len(audio) > 8000
     ok &= good
-    print(f"{'PASS' if good else 'FAIL'}  {time.time() - t0:.1f} s  said: {text}\n      heard: {said}\n      "
-          f"captain: {r and r['reply']}  ({r and r['intent']}, {len(audio) / 8000:.1f} s of speech)")
+    # measured from his last word: the 0.6 s of quiet is part of it
+    ack, full = 0.6 + (t_agent or 99), 0.6 + (t_voice or 99)
+    acks.append(ack); fulls.append(full)
+    print(f"{'PASS' if good else 'FAIL'}  said: {text}\n      heard: {said}\n      "
+          f"Copy after {ack:.2f} s, answer starts arriving after {full:.2f} s: {sp and sp['reply']}  ({r and r['intent']})")
+print(f"from his last word: Copy {min(acks):.2f}-{max(acks):.2f} s, answer {min(fulls):.2f}-{max(fulls):.2f} s (before the link and the 0.4 s playback buffer)")
 event("mission_end", {"outcome": "success", "reason": "agent test"})
-time.sleep(1)
+time.sleep(3)
 relay.terminate()
 sys.exit(0 if ok else 1)

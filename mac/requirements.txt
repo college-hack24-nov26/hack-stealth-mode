@@ -2,4 +2,4 @@ bleak
 numpy
 pyobjc-framework-CoreBluetooth
 mlx-whisper
-faster-whisper
+laya-mlx

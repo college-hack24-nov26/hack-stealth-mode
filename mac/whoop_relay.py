@@ -19,8 +19,8 @@ venue Wi-Fi does not matter) and UDP 5006/5005 over Wi-Fi (the Unity editor, or 
 back over the channel the message came in on.
 
 The same channel carries the Engineer's voice while the Captain is listening (binary frames starting 0xA0, see
-VoiceActivity.cs): captain_agent.py turns each finished call into text, works out the Captain's answer and speaks it.
-Back to the Quest go {"type":"said","u":U,"t":words}, {"type":"agent","reply":..,"clip":..,"tts":1} and the spoken answer as
+VoiceActivity.cs): captain_agent.py hears each call and answers it. Back to the Quest go {"type":"said","u":U,"t":words} and
+{"type":"agent","ack":clip,"clip":..,"tts":1} at once, then {"type":"speak","u":U,"reply":..,"frames":N} and the spoken answer as
 binary frames starting 0xB0 (same 8 kHz mu-law). The relay restarts itself when its code changes, while idle.
 
 Events carry a per-mission sequence number n: the relay acks each one (the Quest resends until acked), drops
@@ -32,7 +32,9 @@ web-app/.env.local. Logs: mac/sessions/relay.log, whoop_*.csv, events_*.csv.
 """
 import argparse, asyncio, csv, difflib, json, math, os, random, signal, socket, statistics, sys, time, urllib.error, urllib.request
 
-from captain_agent import NOISE, Brain, Captain, Ear, Mouth
+import numpy as np
+
+from captain_agent import NOISE, Brain, Captain, Ear, Mouth, Reflex, decode_ulaw
 
 HR_SERVICE = "0000180d-0000-1000-8000-00805f9b34fb"
 HR_MEASUREMENT = "00002a37-0000-1000-8000-00805f9b34fb"
@@ -40,6 +42,7 @@ HR_PORT, EVENT_PORT = 5005, 5006
 AUDIO = b"\xa0"          # first byte of a voice frame
 SPEECH = 0xB0            # first byte of a frame of the Captain's voice, Mac -> Quest
 SPEECH_FRAME = 240       # bytes of audio per frame: 30 ms, one Bluetooth packet
+QUIET_TAIL = 2000        # 0.25 s of low level at the end of a call: he has probably stopped
 CALL_GAP_S = 0.8         # no frames for this long: the call is over even if its last frame was lost
 BASELINE_S = 45          # resting window: the first seconds of the mission (briefing)
 LEVELS = (8, 18, 30)     # bpm above baseline for stress level 1, 2, 3
@@ -234,6 +237,16 @@ class Debrief:
             raise RpcError(fn, e.code, e.read().decode()) from None
 
 
+def tail_is_quiet(buf, n=QUIET_TAIL):
+    """The last n bytes of the call are well below the loudest moment of it."""
+    x = decode_ulaw(bytes(buf))
+    n = max(n, 240)
+    if len(x) <= n:
+        return False
+    peak = max(float(np.sqrt(np.mean(x[i:i + 240] ** 2))) for i in range(0, len(x) - n, 240))
+    return float(np.sqrt(np.mean(x[-n:] ** 2))) < 0.2 * peak
+
+
 def ascii_words(s, n):
     return (s or "").encode("ascii", "ignore").decode()[:n]
 
@@ -272,7 +285,7 @@ class Relay:
         self.rx.setblocking(False)
         self.quest = a.quest
         self.mission = None
-        self.ear, self.brain, self.mouth = Ear(log), Brain(log), Mouth()
+        self.ear, self.reflex, self.brain, self.mouth = Ear(log), Reflex(log), Brain(log), Mouth()
         self.code = self.code_stamp()
         self.ble = None
         if HAVE_BLE and not a.no_ble:
@@ -366,6 +379,7 @@ class Relay:
         call["buf"] += raw[4:]
         call["last"] = time.time()
         if flags & 1:
+            call["ended"] = time.time()
             asyncio.ensure_future(self.answer(mi, u))
 
     @staticmethod
@@ -382,41 +396,73 @@ class Relay:
 
     async def calls_loop(self):
         while True:
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.05)
             mi = self.mission
             if mi:
                 for u, c in list(mi.calls.items()):
                     if time.time() - c["last"] > CALL_GAP_S:
                         await self.answer(mi, u)
+                    elif c["ctx"] != "free" and len(c["buf"]) >= 4000 and tail_is_quiet(c["buf"]):
+                        # his voice just dropped: start listening to it now, before the headset says the call is over
+                        # (again if that was only a pause and he has said more since)
+                        n = len(c["buf"])
+                        if not c.get("early") or not tail_is_quiet(c["buf"], n - c["early"][0]):
+                            c["early"] = (n, asyncio.ensure_future(asyncio.to_thread(self.ear.quick, bytes(c["buf"]))))
 
     async def answer(self, mi, u):
         call = mi.calls.pop(u, None)
         if call is None:
             return
         mi.answered.add(u)
-        t0 = time.time()
         save = os.path.join(OUT, f"voice_{time.strftime('%Y%m%d_%H%M%S')}_{call['ctx']}.wav")
+        raw, src, ctx = bytes(call["buf"]), call["src"], call["ctx"]
+        t0 = call.get("ended", time.time())
         try:
-            text = await asyncio.to_thread(self.ear.hear, bytes(call["buf"]), save)
-            if call["ctx"] == "free":   # nobody asked him anything: his words still go on the record
-                self.record_words(mi, call, text)
+            if ctx == "free":           # nobody asked him anything: his words still go on the record
+                self.record_words(mi, call, await asyncio.to_thread(self.ear.hear, raw, save))
                 return
+            # Type 1: the early listen if nothing but quiet came after it, else listen now; Laya decides
+            text = None
+            if call.get("early"):
+                n, task = call["early"]
+                said = await task
+                if tail_is_quiet(raw, len(raw) - n):
+                    text = said
+            if text is None:
+                text = await asyncio.to_thread(self.ear.quick, raw)
+            r = await asyncio.to_thread(mi.captain.decide, ctx, text)
+            self.reply(src, {"type": "said", "u": u, "t": ascii_words(r["heard"], 190)})
+            self.reply(src, {**{k: r[k] for k in ("ack", "clip", "intent", "done", "cover", "comms", "backup")},
+                             "type": "agent", "u": u, "ctx": ctx, "tts": 1 if r["goal"] else 0})
             t1 = time.time()
-            r = await asyncio.to_thread(mi.captain.answer, call["ctx"], text)
+            asyncio.ensure_future(self.keep_record(mi, call, raw, save))
+            # Type 2: Claude writes the answer, the Mac speaks it
+            reply = await asyncio.to_thread(self.brain.ask, mi.captain.brief(r["heard"], r["goal"])) if r["goal"] else ""
             t2 = time.time()
-            speech = await asyncio.to_thread(self.mouth.speak, r["reply"]) if r["reply"] else None
+            speech = await asyncio.to_thread(self.mouth.speak, reply) if reply else None
+            t3 = time.time()
         except Exception as e:          # a bad call must never take the relay down: the headset falls back on its own
             log(f"voice error: {e!r}")
             return
-        src = call["src"]
-        self.reply(src, {"type": "said", "u": u, "t": ascii_words(r["heard"], 190)})
-        out = {k: r[k] for k in ("clip", "intent", "done", "cover", "comms", "backup")}
-        out.update(type="agent", u=u, ctx=call["ctx"], tts=1 if speech else 0, reply=ascii_words(r["reply"], 100))
-        self.reply(src, out)
-        log(f"radio  {call['ctx']:<7} {len(call['buf']) / 8000:4.1f} s of voice | ears {t1 - t0:.1f} s, brain {t2 - t1:.1f} s, "
-            f"voice {time.time() - t2:.1f} s | heard \"{r['heard']}\" -> {r['intent']} | says \"{r['reply'] or r['clip']}\"")
-        if speech:
-            await self.send_speech(src, u, speech)
+        log(f"radio  {ctx:<7} {len(raw) / 8000:4.1f} s of voice | decision +{t1 - t0:.2f} s | claude {t2 - t1:.2f} s, voice {t3 - t2:.2f} s, "
+            f"answer ready +{t3 - t0:.2f} s | heard \"{r['heard']}\" -> {r['intent']} | says \"{reply or r['clip']}\"")
+        if r["goal"]:
+            frames = -(-len(speech) // SPEECH_FRAME) if speech else 0
+            self.reply(src, {"type": "speak", "u": u, "frames": frames, "reply": ascii_words(reply, 150)})
+            if speech:
+                await self.send_speech(src, u, speech)
+
+    async def keep_record(self, mi, call, raw, save):
+        """The accurate words for the debrief, without holding anything up."""
+        try:
+            text = await asyncio.to_thread(self.ear.hear, raw, save)
+        except Exception as e:
+            log(f"voice error: {e!r}")
+            return
+        if text:
+            t_ms = call["t_ms"]
+            mi.ev_out.append({"t_ms": t_ms, "type": "radio", "actor": "engineer", "data": {"transcript": text, "end_ms": t_ms + len(raw) // 8}})
+            log(f"radio  record  \"{text}\"")
 
     def record_words(self, mi, call, text):
         """Whatever he says outside an exchange: on the debrief timeline in his own words, unless it is our own radio leaking
@@ -450,7 +496,8 @@ class Relay:
     def start_mission(self, m, src):
         mi = Mission(m.get("mid"), time.time() - int(m.get("t_ms", 0)) / 1000)
         mi.via = src[0]
-        mi.captain = Captain(self.brain)
+        mi.captain = Captain(self.reflex)
+        self.brain.restart()
         self.mission = mi
         log("=" * 60)
         where = "over Bluetooth" if src[0] == "ble" else f"over Wi-Fi ({src[1]})"
@@ -647,3 +694,4 @@ if __name__ == "__main__":
     ap.add_argument("--watchdog", type=float, default=30, help="seconds of headset silence that end a mission")
     a = ap.parse_args()
     asyncio.run(Relay(a).run())
+    os._exit(0)         # MLX crashes in its exit-time cleanup otherwise

@@ -35,11 +35,12 @@ namespace StealthMode
 
         /// <summary>The Captain's answer to what the Engineer said: which radio clip to play, and what he understood.</summary>
         [System.Serializable]
-        public class AgentReply { public int u, cover, comms, backup, done, tts; public string ctx, clip, intent, reply, heard; }
-        [System.Serializable] class Message { public string type, t; public int u; }
+        public class AgentReply { public int u, cover, comms, backup, done, tts; public string ctx, ack, clip, intent, heard; }
+        [System.Serializable] class Message { public string type, t, reply; public int u, frames; }
         readonly ConcurrentQueue<string> replies = new ConcurrentQueue<string>();
         readonly ConcurrentQueue<byte[]> speech = new ConcurrentQueue<byte[]>();
         readonly Dictionary<int, string> heard = new Dictionary<int, string>();
+        readonly Dictionary<int, Message> spoken = new Dictionary<int, Message>();
         static readonly List<Pending> pending = new List<Pending>();
         static int mid, seq, lastEventMs;
         static bool ended;
@@ -116,7 +117,7 @@ namespace StealthMode
         void Handle(string msg)
         {
             if (msg.Length > 0 && msg[0] == BleSpeech) { speech.Enqueue(System.Convert.FromBase64String(msg.Substring(1))); return; }
-            if (msg.Contains("\"agent\"") || msg.Contains("\"said\"")) { replies.Enqueue(msg); return; }
+            if (msg.Contains("\"agent\"") || msg.Contains("\"said\"") || msg.Contains("\"speak\"")) { replies.Enqueue(msg); return; }
             if (msg.Contains("\"ack\""))
             {
                 int n = Field(msg, "\"n\":");
@@ -183,12 +184,24 @@ namespace StealthMode
             {
                 var m = JsonUtility.FromJson<Message>(json);
                 if (m.type == "said") { I.heard[m.u] = m.t; continue; }
+                if (m.type == "speak") { I.spoken[m.u] = m; continue; }
                 if (ctx == null) continue;
                 var r = JsonUtility.FromJson<AgentReply>(json);
                 I.heard.TryGetValue(r.u, out r.heard);
                 if (r.ctx == ctx) return r;
             }
             return null;
+        }
+
+        /// <summary>The Captain's real answer to call u has been written: his words and how many frames of speech follow (0: none).</summary>
+        public static bool TakeSpeech(int u, out string words, out int frames)
+        {
+            words = null; frames = 0;
+            if (I == null) return false;
+            TakeReply("none");
+            if (!I.spoken.TryGetValue(u, out var m)) return false;
+            words = m.reply; frames = m.frames;
+            return true;
         }
 
         /// <summary>One frame of the Engineer's voice for the Captain: binary, best effort, no ack (a gap is just a gap).</summary>

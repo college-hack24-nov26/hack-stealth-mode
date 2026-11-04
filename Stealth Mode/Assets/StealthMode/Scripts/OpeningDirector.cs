@@ -103,6 +103,8 @@ namespace StealthMode
             ["r38_doc_comms"] = "Doc. I've got Comms. He's alive. Bleeding is under control.",
             ["r39_captain_success"] = "All call signs, Alpha Lead. Device neutralised, area secure, all of Alpha accounted for. Mission successful. Good work, Engineer.",
             ["r40_captain_comms_lost"] = "Engineer, Alpha Lead. Comms is gone. We lost him. Mission failed.",
+            ["r41_captain_copy"] = "Copy, Engineer.",
+            ["r42_captain_goodcopy"] = "Good copy.",
         };
 
         // what the captions add for the person in the headset (the controls), after the words on the radio
@@ -984,7 +986,7 @@ namespace StealthMode
                 voice(Time.time - 1.5f);
                 done(new HeartLink.AgentReply
                 {
-                    ctx = ctx, done = 1, cover = 1, comms = 1, backup = 1, intent = "sim",
+                    ctx = ctx, done = 1, cover = 1, comms = 1, backup = 1, intent = "sim", ack = "r41_captain_copy",
                     heard = ctx == "report" ? "Alpha Lead, Comms is down, trip mine." : "Behind the container, Comms is with me, need backup.",
                     clip = ctx == "report" ? "r23_captain_drag" : "r30_captain_copy_all",
                 });
@@ -1005,11 +1007,11 @@ namespace StealthMode
             done(r);
         }
 
-        // what he said goes on the debrief timeline at the moment he started saying it
+        // the relay puts his words on the debrief timeline; this is only for when it never heard them
         void LogEngineer(HeartLink.AgentReply said, string unchecked_, float onset, bool prompted)
         {
-            bool words = said != null && !string.IsNullOrEmpty(said.heard);
-            HeartLink.Event("radio", "engineer", $"{{\"transcript\":{HeartLink.Str(words ? said.heard : unchecked_)},\"voice_only\":{(words ? "false" : "true")},\"prompted\":{(prompted ? "true" : "false")},\"end_ms\":{Mathf.RoundToInt((Time.time - HeartLink.MissionStart) * 1000f)}}}", onset);
+            if (said != null && !string.IsNullOrEmpty(said.heard)) return;
+            HeartLink.Event("radio", "engineer", $"{{\"transcript\":{HeartLink.Str(unchecked_)},\"voice_only\":true,\"prompted\":{(prompted ? "true" : "false")},\"end_ms\":{Mathf.RoundToInt((Time.time - HeartLink.MissionStart) * 1000f)}}}", onset);
         }
 
         // the Engineer's report: his first words after the blast (headset mic); the Captain asks once if he says nothing,
@@ -1054,23 +1056,27 @@ namespace StealthMode
             else if (called >= 0) yield return Say("r23b_captain_keepgoing");
         }
 
-        // the Captain's answer: his own words if they are coming over the link (what the Engineer said shows first, so he
-        // sees he was understood), else the pre-made line
+        // the Captain's answer in two steps, like a man on a radio: the instant "Copy" (a clip already on the headset), then his
+        // real answer to what was said, coming over the link while the "Copy" plays. What the Engineer said shows meanwhile, so
+        // he sees he was understood. If the real answer doesn't come in time: the pre-made line.
         IEnumerator Speak(HeartLink.AgentReply r)
         {
             var head = player.cam.transform;
-            if (!string.IsNullOrEmpty(r.heard)) Caption.Show(head, "YOU", r.heard, 5f);
             while (radio.isPlaying) yield return null;
-            if (r.tts > 0 && !string.IsNullOrEmpty(r.reply))
+            if (!string.IsNullOrEmpty(r.ack)) yield return Say(r.ack);
+            if (!string.IsNullOrEmpty(r.heard)) Caption.Show(head, "YOU", r.heard, 5f);
+            if (r.tts > 0)
             {
-                RadioStream.Expect(r.u, r.tts);
-                for (float t = Time.time; !RadioStream.Started && Time.time - t < 6f;) yield return null;
-                if (RadioStream.Started)
+                string words = null; int frames = 0;
+                for (float t = Time.time; !HeartLink.TakeSpeech(r.u, out words, out frames) && Time.time - t < 5f;) yield return null;
+                if (frames > 0) RadioStream.Expect(r.u, frames);
+                for (float t = Time.time; frames > 0 && !RadioStream.Started && Time.time - t < 4f;) yield return null;
+                if (frames > 0 && RadioStream.Started)
                 {
-                    float length = r.tts * 0.03f;
-                    Caption.Show(head, "CAPTAIN (radio)", r.reply + (CaptionHint.TryGetValue(r.clip, out var hint) ? "\n" + hint : ""), length + 0.6f);
+                    float length = frames * 0.03f;
+                    Caption.Show(head, "CAPTAIN (radio)", words + (CaptionHint.TryGetValue(r.clip, out var hint) ? "\n" + hint : ""), length + 0.6f);
                     int endMs = Mathf.RoundToInt((Time.time + length - HeartLink.MissionStart) * 1000f);
-                    HeartLink.Event("radio", "captain", $"{{\"transcript\":{HeartLink.Str(r.reply)},\"end_ms\":{endMs}}}");
+                    HeartLink.Event("radio", "captain", $"{{\"transcript\":{HeartLink.Str(words)},\"end_ms\":{endMs}}}");
                     for (float t = Time.time; RadioStream.Playing && Time.time - t < 16f;) yield return null;
                     yield return new WaitForSeconds(0.35f);
                     yield break;

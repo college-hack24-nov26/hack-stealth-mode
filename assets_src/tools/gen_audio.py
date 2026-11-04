@@ -76,6 +76,9 @@ LINES = [
     ("r38_doc_comms", "doc", "Doc. I've got Comms. He's alive. Bleeding is under control."),
     ("r39_captain_success", "captain", "All call signs, Alpha Lead. Device neutralised, area secure, all of Alpha accounted for. Mission successful. Good work, Engineer."),
     ("r40_captain_comms_lost", "captain", "Engineer, Alpha Lead. Comms is gone. We lost him. Mission failed."),
+    # the instant acknowledgement that plays while Claude writes the real answer (mac/captain_agent.py)
+    ("r41_captain_copy", "captain", "Copy, Engineer."),
+    ("r42_captain_goodcopy", "captain", "Good copy."),
 ]
 
 # Comms' own voice in the air only (no radio): short shouts, and his voice after the blast has killed his radio

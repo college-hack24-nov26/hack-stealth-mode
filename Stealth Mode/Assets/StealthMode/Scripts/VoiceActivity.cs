@@ -27,7 +27,7 @@ namespace StealthMode
         public static string Listen;
 
         const int Rate = 16000, Frame = 320;          // 20 ms
-        const float MinLevel = 0.03f, OverFloor = 4f, Hold = 0.25f, Release = 0.6f, CallRelease = 1f, MaxCall = 12f;
+        const float MinLevel = 0.03f, OverFloor = 4f, Hold = 0.25f, Release = 0.6f, CallRelease = 0.6f, MaxCall = 12f;
         const int Packet = 240, PreRoll = 20;   // 30 ms of 8 kHz mu-law; 20 x 20 ms
         AudioClip mic; string device; int readPos;
         float floor = 0.05f, above, below;     // starts high and drops to the room in a second: no false start
