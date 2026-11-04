@@ -13,11 +13,11 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 HR_PORT, EVENT_PORT = 5015, 5016
 RELAY = ("127.0.0.1", EVENT_PORT)
-CASES = [   # context, what he says, the clip the Captain must answer with
-    ("report", "Alpha Lead, Comms is down. He hit a trip mine. He's wounded.", "r23_captain_drag"),
-    ("sitrep", "We are behind the container.", "r32_captain_ask_comms"),
-    ("sitrep", "Comms is with me. He's hurt but protected.", "r33_captain_ask_backup"),
-    ("sitrep", "Requesting backup and a medic.", "r30_captain_copy_all"),
+CASES = [   # context, what he says, the intent the Captain must reach
+    ("report", "Alpha Lead, Comms is down. He hit a trip mine. He's wounded.", "report_ok"),
+    ("sitrep", "We are behind the container.", "sitrep_partial"),
+    ("sitrep", "Comms is with me. He's hurt but protected.", "sitrep_partial"),
+    ("sitrep", "Requesting backup and a medic.", "sitrep_full"),
 ]
 
 
@@ -47,7 +47,7 @@ w.HR_PORT, w.EVENT_PORT = {HR_PORT}, {EVENT_PORT}
 a = argparse.Namespace(quest=None, name="agent test", simulate=True, dry_run=True, no_ble=True, watchdog=30)
 asyncio.run(w.Relay(a).run())
 """], stdout=subprocess.DEVNULL)
-time.sleep(10)      # the model loads in the background
+time.sleep(25)      # the models load in the background
 s.bind(("0.0.0.0", HR_PORT))
 s.settimeout(0.05)
 mid = random.randint(1, 2**31 - 1)
@@ -61,15 +61,28 @@ def event(ev, data=None):
 
 
 def wait_reply(timeout):
+    """-> (said, agent, frames of spoken audio)"""
     end = time.time() + timeout
+    said = agent = None
+    audio = bytearray()
     while time.time() < end:
         try:
-            m = json.loads(s.recv(4096).decode())
+            raw = s.recv(4096)
         except socket.timeout:
             continue
-        if m.get("type") == "agent":
-            return m
-    return None
+        if raw[:1] == b"\xb0":
+            audio += raw[4:]
+            if raw[2] & 1:
+                return said, agent, audio
+            continue
+        m = json.loads(raw.decode())
+        if m.get("type") == "said":
+            said = m["t"]
+        elif m.get("type") == "agent":
+            agent = m
+            if not m["tts"]:
+                return said, agent, audio
+    return said, agent, audio
 
 
 event("mission_start")
@@ -83,10 +96,11 @@ for u, (ctx, text, want) in enumerate(CASES, 1):
         s.sendto(bytes([0xA0, u, (1 if last else 0) | (1 if ctx == "sitrep" else 0) << 1, i & 255]) + f, RELAY)
         time.sleep(0.03)        # in real time, like the headset
     t0 = time.time()
-    r = wait_reply(10)
-    good = r is not None and r["clip"] == want
+    said, r, audio = wait_reply(20)
+    good = r is not None and r["intent"] == want and r["tts"] == 1 and len(audio) > 8000
     ok &= good
-    print(f"{'PASS' if good else 'FAIL'}  {time.time() - t0:.1f} s  said: {text}\n      heard: {r and r['heard']}\n      clip: {r and r['clip']} (want {want})")
+    print(f"{'PASS' if good else 'FAIL'}  {time.time() - t0:.1f} s  said: {text}\n      heard: {said}\n      "
+          f"captain: {r and r['reply']}  ({r and r['intent']}, {len(audio) / 8000:.1f} s of speech)")
 event("mission_end", {"outcome": "success", "reason": "agent test"})
 time.sleep(1)
 relay.terminate()

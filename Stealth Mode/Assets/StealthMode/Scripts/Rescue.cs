@@ -1,16 +1,15 @@
+using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.InputSystem;
-using UnityEngine.XR;
+using UnityEngine.XR.Hands;
 
 namespace StealthMode
 {
     /// <summary>
-    /// Beat 6: getting Comms out of the open with the left hand. The Engineer holds the left Touch controller too: a small
-    /// glove marker shows where his left hand is; it brightens when it is on Comms' vest. Holding the GRIP there takes hold
-    /// of the drag handle at the back of his vest (the index TRIGGER works too: people press either); walking backwards pulls
-    /// the whole body (heavy, the heels drag in the dirt). Letting go drops him where he is. "On the vest" is forgiving:
-    /// the hand within 30 cm of his torso or head, or 60 cm of the handle.
-    /// Editor play-test: `simulate` + simHand / simGrip stand in for the controller.
+    /// Beat 6: getting Comms out of the open with the bare left hand (hand tracking; the left controller is not used). Close
+    /// the hand or pinch with any part of it on any part of him, and that spot of his body is held by a spring to the hand:
+    /// the ragdoll follows through its own joints, heavy, dragging on the ground. A toe works as well as the collar. Open the
+    /// hand and he drops where he is. Small dots show the tracked hand: white, yellow in reach of him, green holding.
+    /// Editor play-test: `simulate` + simHand / simGrip stand in for the hand.
     /// </summary>
     public class Rescue : MonoBehaviour
     {
@@ -22,17 +21,25 @@ namespace StealthMode
         public bool EverGrabbed { get; private set; }
         public float FirstGrabTime { get; private set; } = -1;
         public int Grabs { get; private set; }
-        public float Moved { get; private set; }          // metres the body has been pulled from where he was first grabbed
-        public Vector3 HandPos { get; private set; }
+        public float Moved { get; private set; }          // metres his chest has been pulled from where he was first grabbed
 
-        const float Reach = 0.3f, HandleReach = 0.6f;
-        InputAction lPos, lTracked, lGrip, lTrigger;
-        Collider[] torso;
-        float nextLog;
-        Rigidbody collar, handBody;
+        const float Reach = 0.12f;                        // any joint of the hand this close to his body is touching him
+        const float CurlIn = 0.085f, CurlOut = 0.105f, PinchIn = 0.03f, PinchOut = 0.05f;
+        const float LostGrace = 0.4f;                     // tracking blinks while the hand is closed: don't drop him for that
+        const int FirstJoint = (int)XRHandJointID.Wrist, LastJoint = (int)XRHandJointID.LittleTip;
+        static readonly XRHandJointID[] Curling = { XRHandJointID.IndexTip, XRHandJointID.MiddleTip, XRHandJointID.RingTip, XRHandJointID.LittleTip };
+        static readonly List<XRHandSubsystem> found = new List<XRHandSubsystem>();
+
+        XRHandSubsystem hands;
+        readonly List<Vector3> joints = new List<Vector3>();
+        readonly List<Transform> dots = new List<Transform>();
+        Collider[] body;
+        Rigidbody handBody;
         SpringJoint joint;
-        Material glove;
-        Vector3 start;
+        Material dotMat;
+        Vector3 palm, start;
+        bool closed;
+        float lastSeen, nextLog;
 
         public static Rescue Begin(SoldierRig casualty, Camera cam)
         {
@@ -43,92 +50,122 @@ namespace StealthMode
 
         void Start()
         {
-            lPos = new InputAction("Left Grip Position", binding: "<XRController>{LeftHand}/devicePosition", expectedControlType: "Vector3");
-            lTracked = new InputAction("Left Tracked", InputActionType.Button, "<XRController>{LeftHand}/isTracked");
-            lGrip = new InputAction("Left Grip", InputActionType.Button, "<XRController>{LeftHand}/gripPressed");
-            lTrigger = new InputAction("Left Trigger", InputActionType.Button, "<XRController>{LeftHand}/triggerPressed");
-            foreach (var a in new[] { lPos, lTracked, lGrip, lTrigger }) a.Enable();
-
-            // the drag handle sits on the back of the vest, between the shoulder blades: the upper-chest body
-            foreach (var rb in casualty.GetComponentsInChildren<Rigidbody>())
-                if (collar == null || Vector3.Distance(rb.position, casualty.Chest.position) < Vector3.Distance(collar.position, casualty.Chest.position)) collar = rb;
-            start = collar.position;
-            var anim = casualty.GetComponent<Animator>();
-            var parts = new System.Collections.Generic.List<Collider>();
-            foreach (var b in new[] { HumanBodyBones.Hips, HumanBodyBones.Spine, HumanBodyBones.Chest, HumanBodyBones.UpperChest, HumanBodyBones.Neck, HumanBodyBones.Head })
-            {
-                var t = anim ? anim.GetBoneTransform(b) : null;
-                if (t) parts.AddRange(t.GetComponents<Collider>());
-            }
-            torso = parts.ToArray();
-
-            var g = GameObject.CreatePrimitive(PrimitiveType.Sphere); Destroy(g.GetComponent<Collider>());
-            g.name = "Left hand"; g.transform.SetParent(transform, false); g.transform.localScale = Vector3.one * 0.07f;
-            glove = new Material(Resources.Load<Material>("UI/UiUnlit")); glove.SetTexture("_BaseMap", Texture2D.whiteTexture);
-            var mr = g.GetComponent<MeshRenderer>(); mr.sharedMaterial = glove; mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            var parts = new List<Collider>();
+            foreach (var c in casualty.GetComponentsInChildren<Collider>())
+                if (c.attachedRigidbody && !c.isTrigger) parts.Add(c);
+            body = parts.ToArray();
             handBody = gameObject.AddComponent<Rigidbody>(); handBody.isKinematic = true; handBody.interpolation = RigidbodyInterpolation.Interpolate;
+            dotMat = new Material(Resources.Load<Material>("UI/UiUnlit")); dotMat.SetTexture("_BaseMap", Texture2D.whiteTexture);
+            for (int i = FirstJoint; i <= LastJoint; i++)
+            {
+                var g = GameObject.CreatePrimitive(PrimitiveType.Sphere); Destroy(g.GetComponent<Collider>());
+                g.name = "Hand joint"; g.transform.SetParent(transform, false); g.transform.localScale = Vector3.one * 0.016f;
+                var mr = g.GetComponent<MeshRenderer>(); mr.sharedMaterial = dotMat; mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                dots.Add(g.transform);
+            }
+            // a limp body slides along the dirt instead of sticking to it
+            var slide = new PhysicsMaterial("Dragged body") { dynamicFriction = 0.35f, staticFriction = 0.4f, frictionCombine = PhysicsMaterialCombine.Minimum };
+            foreach (var c in body) c.sharedMaterial = slide;
+            foreach (var rb in casualty.GetComponentsInChildren<Rigidbody>()) { rb.solverIterations = 16; rb.solverVelocityIterations = 4; }
         }
 
         void OnDestroy()
         {
-            foreach (var a in new[] { lPos, lTracked, lGrip, lTrigger }) a?.Dispose();
             if (joint) Destroy(joint);
-            if (glove) Destroy(glove);
+            if (dotMat) Destroy(dotMat);
         }
 
         void Update()
         {
-            bool tracked, grip; Vector3 p;
-            if (simulate) { tracked = true; grip = simGrip; p = simHand; }
-            else if (XRSettings.isDeviceActive)
+            bool tracked = ReadHand();
+            for (int i = 0; i < dots.Count; i++)
             {
-                tracked = lTracked.ReadValue<float>() > 0.5f;
-                grip = lGrip.IsPressed() || lTrigger.IsPressed();
-                p = cam.transform.parent.TransformPoint(lPos.ReadValue<Vector3>());
+                bool on = tracked && i < joints.Count;
+                dots[i].gameObject.SetActive(on);
+                if (on) dots[i].position = joints[i];
             }
-            else { tracked = false; grip = false; p = transform.position; }
+            if (!tracked)
+            {
+                if (joint && Time.time - lastSeen > LostGrace) Drop();
+                return;
+            }
+            lastSeen = Time.time;
+            handBody.MovePosition(palm);
 
-            transform.GetChild(0).gameObject.SetActive(tracked);
-            if (!tracked) { if (joint) Drop(); return; }
-            HandPos = p;
-            handBody.MovePosition(p);
-            bool onVest = OnBody(p);
+            Touching(out var part, out var contact, out var gap);
+            bool inReach = part != null;
+            dotMat.SetColor("_BaseColor", Holding ? new Color(0.45f, 1f, 0.55f, 0.95f) : inReach ? new Color(1f, 0.92f, 0.45f, 0.95f) : new Color(1f, 1f, 1f, 0.6f));
             if (Time.time > nextLog)
             {
                 // what the left hand is doing, once a second, for checking the headset runs (adb logcat -s Unity)
                 nextLog = Time.time + 1f;
-                Debug.Log($"[StealthMode] RESCUE hand tracked={tracked} grip={grip} onVest={onVest} holding={Holding} handle {Vector3.Distance(p, collar.position):0.00} m, moved {Moved:0.00} m" +
-                          (XRSettings.isDeviceActive ? $" (pos via {(lPos.activeControl != null ? lPos.activeControl.device.name : "none")}, {lPos.controls.Count} bound)" : ""));
+                Debug.Log($"[StealthMode] RESCUE hand closed={closed} nearest {(part ? part.name : "-")} {gap:0.00} m, holding={Holding}, moved {Moved:0.00} m");
             }
-            glove.SetColor("_BaseColor", Holding ? new Color(0.45f, 1f, 0.55f, 0.95f) : onVest ? new Color(1f, 0.92f, 0.45f, 0.95f) : new Color(1f, 1f, 1f, 0.55f));
-
-            if (grip && !joint && onVest) Grab();
-            else if (!grip && joint) Drop();
-            var d = collar.position - start; d.y = 0; Moved = d.magnitude;
+            if (closed && !joint && inReach) Grab(part, contact);
+            else if (!closed && joint) Drop();
+            var d = casualty.Chest.position - start; d.y = 0;
+            if (EverGrabbed) Moved = d.magnitude;
         }
 
-        bool OnBody(Vector3 p)
+        // the left hand this frame: every joint in world space, the palm, and whether it is closed or pinching
+        bool ReadHand()
         {
-            if (Vector3.Distance(p, collar.position) < HandleReach) return true;
-            foreach (var c in torso)
-                if (c && Vector3.Distance(c.ClosestPoint(p), p) < Reach) return true;
-            return false;
+            joints.Clear();
+            if (simulate) { palm = simHand; closed = simGrip; joints.Add(simHand); return true; }
+            if (hands == null || !hands.running)
+            {
+                SubsystemManager.GetSubsystems(found);
+                hands = found.Count > 0 ? found[0] : null;
+                if (hands == null) return false;
+            }
+            var hand = hands.leftHand;
+            if (!hand.isTracked) return false;
+            var space = cam.transform.parent;
+            Vector3 World(XRHandJointID id) => hand.GetJoint(id).TryGetPose(out var p) ? space.TransformPoint(p.position) : Vector3.zero;
+            for (int i = FirstJoint; i <= LastJoint; i++) { var w = World((XRHandJointID)i); if (w != Vector3.zero) joints.Add(w); }
+            palm = World(XRHandJointID.Palm);
+            if (palm == Vector3.zero || joints.Count == 0) return false;
+            int curled = 0;
+            foreach (var tip in Curling) if (Vector3.Distance(World(tip), palm) < (closed ? CurlOut : CurlIn)) curled++;
+            float pinch = Vector3.Distance(World(XRHandJointID.ThumbTip), World(XRHandJointID.IndexTip));
+            closed = curled >= 3 || pinch < (closed ? PinchOut : PinchIn);
+            return true;
         }
 
-        void Grab()
+        // the part of him nearest to any joint of the hand, if it is in reach
+        void Touching(out Rigidbody part, out Vector3 contact, out float gap)
+        {
+            part = null; contact = default; gap = float.MaxValue;
+            foreach (var c in body)
+            {
+                if (!c) continue;
+                foreach (var j in joints)
+                {
+                    var p = c.ClosestPoint(j);
+                    float d = Vector3.Distance(p, j);
+                    if (d >= gap) continue;
+                    gap = d; contact = p;
+                    part = d < Reach ? c.attachedRigidbody : null;
+                }
+            }
+        }
+
+        void Grab(Rigidbody part, Vector3 contact)
         {
             foreach (var rb in casualty.GetComponentsInChildren<Rigidbody>()) { rb.interpolation = RigidbodyInterpolation.Interpolate; rb.WakeUp(); }
-            joint = collar.gameObject.AddComponent<SpringJoint>();
+            joint = part.gameObject.AddComponent<SpringJoint>();
             joint.connectedBody = handBody; joint.autoConfigureConnectedAnchor = false;
-            joint.anchor = Vector3.zero; joint.connectedAnchor = Vector3.zero;
+            joint.anchor = part.transform.InverseTransformPoint(contact);
+            joint.connectedAnchor = contact - palm;           // the hand body doesn't rotate: he stays held where he was touched
             joint.spring = 6000f; joint.damper = 400f; joint.minDistance = 0; joint.maxDistance = 0.03f;
+            joint.massScale = 4f;                             // one light limb must be able to carry the pull into the rest of him
             Grabs++;
-            if (!EverGrabbed) { EverGrabbed = true; FirstGrabTime = Time.time; start = collar.position; }   // drag measured from where he was picked up
-            HeartLink.Event("drag_start", "engineer", $"{{\"grab\":{Grabs}}}");
-            Pulse(0.6f, 0.12f);
+            if (!EverGrabbed) { EverGrabbed = true; FirstGrabTime = Time.time; start = casualty.Chest.position; }
+            Debug.Log($"[StealthMode] RESCUE grabbed him by {part.name}");
+            HeartLink.Event("drag_start", "engineer", $"{{\"grab\":{Grabs},\"part\":{HeartLink.Str(part.name)}}}");
         }
 
-        /// <summary>Let go of him (grip opened, or the beat is over).</summary>
+        /// <summary>Let go of him (hand opened, or the beat is over).</summary>
         public void Drop(bool reachedCover = false)
         {
             if (!joint) return;
@@ -136,10 +173,11 @@ namespace StealthMode
             HeartLink.Event("drag_end", "engineer", $"{{\"reached_cover\":{(reachedCover ? "true" : "false")},\"moved_m\":{Moved.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}}}");
         }
 
-        static void Pulse(float amp, float dur)
+        /// <summary>The drag is over: no more hand dots.</summary>
+        public void Hide()
         {
-            var d = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-            if (d.isValid) d.SendHapticImpulse(0, amp, dur);
+            enabled = false;
+            foreach (var d in dots) d.gameObject.SetActive(false);
         }
     }
 }

@@ -19,7 +19,9 @@ venue Wi-Fi does not matter) and UDP 5006/5005 over Wi-Fi (the Unity editor, or 
 back over the channel the message came in on.
 
 The same channel carries the Engineer's voice while the Captain is listening (binary frames starting 0xA0, see
-VoiceActivity.cs): captain_agent.py turns each finished call into a reply {"type":"agent","clip":..} the Quest plays.
+VoiceActivity.cs): captain_agent.py turns each finished call into text, works out the Captain's answer and speaks it.
+Back to the Quest go {"type":"said","u":U,"t":words}, {"type":"agent","reply":..,"clip":..,"tts":1} and the spoken answer as
+binary frames starting 0xB0 (same 8 kHz mu-law). The relay restarts itself when its code changes, while idle.
 
 Events carry a per-mission sequence number n: the relay acks each one (the Quest resends until acked), drops
 duplicates, and waits for gaps before closing, so nothing is lost or doubled. Debrief credentials are read from
@@ -28,14 +30,16 @@ web-app/.env.local. Logs: mac/sessions/relay.log, whoop_*.csv, events_*.csv.
     python3 mac/whoop_relay.py [--name "Pulin Chaudhari"]
     --simulate   fake heart rate instead of the WHOOP (tests)      --dry-run   no uploads (tests)      --no-ble   Wi-Fi only
 """
-import argparse, asyncio, csv, json, math, os, random, signal, socket, statistics, time, urllib.error, urllib.request
+import argparse, asyncio, csv, difflib, json, math, os, random, signal, socket, statistics, sys, time, urllib.error, urllib.request
 
-from captain_agent import Captain, Ear
+from captain_agent import NOISE, Brain, Captain, Ear, Mouth
 
 HR_SERVICE = "0000180d-0000-1000-8000-00805f9b34fb"
 HR_MEASUREMENT = "00002a37-0000-1000-8000-00805f9b34fb"
 HR_PORT, EVENT_PORT = 5005, 5006
 AUDIO = b"\xa0"          # first byte of a voice frame
+SPEECH = 0xB0            # first byte of a frame of the Captain's voice, Mac -> Quest
+SPEECH_FRAME = 240       # bytes of audio per frame: 30 ms, one Bluetooth packet
 CALL_GAP_S = 0.8         # no frames for this long: the call is over even if its last frame was lost
 BASELINE_S = 45          # resting window: the first seconds of the mission (briefing)
 LEVELS = (8, 18, 30)     # bpm above baseline for stress level 1, 2, 3
@@ -176,7 +180,11 @@ class MacBle:
         """Send one JSON message to the headset (queued if the radio is busy)."""
         if not self.subscribed:
             return False
-        raw = json.dumps(obj).encode()
+        return self.notify_raw(json.dumps(obj).encode())
+
+    def notify_raw(self, raw):
+        if not self.subscribed:
+            return False
         self.pending.append(NSData.dataWithBytes_length_(raw, len(raw)))
         self.flush()
         return True
@@ -184,7 +192,7 @@ class MacBle:
     def flush(self):
         while self.pending and self.mgr.updateValue_forCharacteristic_onSubscribedCentrals_(self.pending[0], self.notify_char, None):
             self.pending.pop(0)
-        del self.pending[:-200]         # a long stall must not grow without bound
+        del self.pending[:-800]         # a long stall must not grow without bound
 
     async def run(self):
         self.start()
@@ -226,6 +234,10 @@ class Debrief:
             raise RpcError(fn, e.code, e.read().decode()) from None
 
 
+def ascii_words(s, n):
+    return (s or "").encode("ascii", "ignore").decode()[:n]
+
+
 class Mission:
     def __init__(self, mid, t0):
         self.mid, self.t0 = mid, t0
@@ -238,7 +250,7 @@ class Mission:
         self.task = None
         self.lock = asyncio.Lock()
         self.window, self.baseline, self.hr = [], None, 0
-        self.captain, self.calls, self.answered = Captain(), {}, set()     # u -> {buf, ctx, src, last}
+        self.captain, self.calls, self.answered, self.radio_said = None, {}, set(), []     # calls: u -> {buf, ctx, src, last}
         self.bad_rr = self.n_hr = self.n_ev = 0
         stamp = time.strftime("%Y%m%d_%H%M%S")
         self.hr_f = open(os.path.join(OUT, f"whoop_{stamp}.csv"), "w", newline="", buffering=1)
@@ -260,7 +272,8 @@ class Relay:
         self.rx.setblocking(False)
         self.quest = a.quest
         self.mission = None
-        self.ear = Ear(log)
+        self.ear, self.brain, self.mouth = Ear(log), Brain(log), Mouth()
+        self.code = self.code_stamp()
         self.ble = None
         if HAVE_BLE and not a.no_ble:
             self.ble = MacBle(lambda m: asyncio.ensure_future(self.on_packet(("ble", None), m)), lambda up: None,
@@ -332,6 +345,8 @@ class Relay:
         mi.seen.add(n)
         t_ms = int(m.get("t_ms", 0))
         mi.ev_out.append({"t_ms": t_ms, "type": ev, "actor": m.get("actor"), "data": m.get("data", {})})
+        if ev == "radio" and m.get("actor") != "engineer":
+            mi.radio_said.append(str(m.get("data", {}).get("transcript", "")).lower().strip(" .,!?"))
         mi.ev_csv.writerow([round(time.time(), 3), t_ms, ev, m.get("actor"), mi.hr])
         if ev != "shot":
             log(f"event  {ev:<12} {m.get('actor') or '':<12} t={t_ms / 1000:7.1f}s  HR {mi.hr or '-'}")
@@ -346,11 +361,24 @@ class Relay:
             return
         u, flags = raw[1], raw[2]
         mi.last_rx = time.time()
-        call = mi.calls.setdefault(u, {"buf": bytearray(), "ctx": "sitrep" if flags >> 1 else "report", "src": src})
+        call = mi.calls.setdefault(u, {"buf": bytearray(), "ctx": ("report", "sitrep", "free", "free")[flags >> 1 & 3], "src": src,
+                                       "t_ms": int((time.time() - mi.t0) * 1000)})
         call["buf"] += raw[4:]
         call["last"] = time.time()
         if flags & 1:
             asyncio.ensure_future(self.answer(mi, u))
+
+    @staticmethod
+    def code_stamp():
+        return [os.path.getmtime(os.path.join(HERE, f)) for f in ("whoop_relay.py", "captain_agent.py")]
+
+    async def code_watch(self):
+        """A relay left running must never be older than the code on disk: restart in place while idle."""
+        while True:
+            await asyncio.sleep(3)
+            if self.mission is None and self.code_stamp() != self.code:
+                log("relay code changed: restarting")
+                os.execv(sys.executable, [sys.executable] + sys.argv)
 
     async def calls_loop(self):
         while True:
@@ -370,25 +398,59 @@ class Relay:
         save = os.path.join(OUT, f"voice_{time.strftime('%Y%m%d_%H%M%S')}_{call['ctx']}.wav")
         try:
             text = await asyncio.to_thread(self.ear.hear, bytes(call["buf"]), save)
-            r = mi.captain.answer(call["ctx"], text)
+            if call["ctx"] == "free":   # nobody asked him anything: his words still go on the record
+                self.record_words(mi, call, text)
+                return
+            t1 = time.time()
+            r = await asyncio.to_thread(mi.captain.answer, call["ctx"], text)
+            t2 = time.time()
+            speech = await asyncio.to_thread(self.mouth.speak, r["reply"]) if r["reply"] else None
         except Exception as e:          # a bad call must never take the relay down: the headset falls back on its own
             log(f"voice error: {e!r}")
             return
-        heard = r["heard"].encode("ascii", "ignore").decode()
-        out = {**r, "type": "agent", "u": u, "ctx": call["ctx"]}
-        while True:                     # the reply must fit one Bluetooth packet
-            out["heard"] = heard
-            if len(json.dumps(out)) <= 235:
-                break
-            heard = heard[:-8]
-        self.reply(call["src"], out)
-        log(f"radio  {call['ctx']:<7} {len(call['buf']) / 8000:4.1f} s of voice, answered in {time.time() - t0:.1f} s: "
-            f"\"{r['heard']}\" -> {r['intent']} {r['clip']}")
+        src = call["src"]
+        self.reply(src, {"type": "said", "u": u, "t": ascii_words(r["heard"], 190)})
+        out = {k: r[k] for k in ("clip", "intent", "done", "cover", "comms", "backup")}
+        out.update(type="agent", u=u, ctx=call["ctx"], tts=1 if speech else 0, reply=ascii_words(r["reply"], 100))
+        self.reply(src, out)
+        log(f"radio  {call['ctx']:<7} {len(call['buf']) / 8000:4.1f} s of voice | ears {t1 - t0:.1f} s, brain {t2 - t1:.1f} s, "
+            f"voice {time.time() - t2:.1f} s | heard \"{r['heard']}\" -> {r['intent']} | says \"{r['reply'] or r['clip']}\"")
+        if speech:
+            await self.send_speech(src, u, speech)
+
+    def record_words(self, mi, call, text):
+        """Whatever he says outside an exchange: on the debrief timeline in his own words, unless it is our own radio leaking
+        from the headset speakers into its mic."""
+        clean = (text or "").lower().strip(" .,!?")
+        if len(clean) < 3 or clean in NOISE:
+            return
+        if any(difflib.SequenceMatcher(None, clean, said).ratio() > 0.7 for said in mi.radio_said):
+            log(f"radio  ignored our own radio in the mic: \"{text}\"")
+            return
+        t_ms = call["t_ms"]
+        mi.ev_out.append({"t_ms": t_ms, "type": "radio", "actor": "engineer", "data": {
+            "transcript": text, "end_ms": t_ms + int(len(call["buf"]) / 8)}})
+        log(f"radio  free    {len(call['buf']) / 8000:4.1f} s of voice | heard \"{text}\"")
+
+    async def send_speech(self, src, u, speech):
+        frames = [speech[i:i + SPEECH_FRAME] for i in range(0, len(speech), SPEECH_FRAME)]
+        for i, f in enumerate(frames):
+            raw = bytes([SPEECH, u, 1 if i == len(frames) - 1 else 0, i & 255]) + f
+            if src[0] == "ble":
+                if self.ble:
+                    self.ble.notify_raw(raw)
+            else:
+                try:
+                    self.tx.sendto(raw, (src[1], HR_PORT))
+                except OSError:
+                    pass
+                await asyncio.sleep(0.01)
 
     # ------------------------------------------------------------ mission lifecycle
     def start_mission(self, m, src):
         mi = Mission(m.get("mid"), time.time() - int(m.get("t_ms", 0)) / 1000)
         mi.via = src[0]
+        mi.captain = Captain(self.brain)
         self.mission = mi
         log("=" * 60)
         where = "over Bluetooth" if src[0] == "ble" else f"over Wi-Fi ({src[1]})"
@@ -565,7 +627,7 @@ class Relay:
     async def run(self):
         stop = asyncio.Event()
         asyncio.get_running_loop().add_signal_handler(signal.SIGINT, stop.set)
-        coros = [self.listen(), self.uploader(), self.watchdog(), self.calls_loop()] + ([self.ble.run()] if self.ble else [])
+        coros = [self.listen(), self.uploader(), self.watchdog(), self.calls_loop(), self.code_watch()] + ([self.ble.run()] if self.ble else [])
         tasks = [asyncio.create_task(c) for c in coros]
         log("Stealth Mode relay ready. Idle until the Engineer presses the RIGHT TRIGGER in the headset. (Ctrl-C to quit)")
         await stop.wait()

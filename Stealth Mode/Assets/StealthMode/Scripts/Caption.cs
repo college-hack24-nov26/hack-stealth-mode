@@ -6,7 +6,7 @@ namespace StealthMode
     /// One line of subtitles low in the Engineer's view: who is talking and what they said (radio and voices in the air),
     /// so nothing is lost in a loud room. It drifts after the head like the start prompt, sits ~20 degrees below the eye
     /// line, and draws over the world (the text shader ignores depth), so the container in front of his face can't hide it.
-    /// Also the big centre text for MISSION FAILED.
+    /// Also the big centre text for COVER SUCCESSFUL.
     /// </summary>
     public class Caption : MonoBehaviour
     {
@@ -25,12 +25,12 @@ namespace StealthMode
             c.until = Time.time + seconds;
         }
 
-        public static void Big(Transform head, string line)
+        public static void Big(Transform head, string line, float seconds)
         {
             var c = Get(head);
             c.big = true;
             c.Set(line, 120, 0.006f);
-            c.until = float.MaxValue;
+            c.until = Time.time + seconds;
         }
 
         static Caption Get(Transform head)

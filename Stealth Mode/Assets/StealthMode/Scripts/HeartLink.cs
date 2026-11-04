@@ -35,8 +35,11 @@ namespace StealthMode
 
         /// <summary>The Captain's answer to what the Engineer said: which radio clip to play, and what he understood.</summary>
         [System.Serializable]
-        public class AgentReply { public int u, cover, comms, backup, done; public string ctx, clip, intent, heard; }
+        public class AgentReply { public int u, cover, comms, backup, done, tts; public string ctx, clip, intent, reply, heard; }
+        [System.Serializable] class Message { public string type, t; public int u; }
         readonly ConcurrentQueue<string> replies = new ConcurrentQueue<string>();
+        readonly ConcurrentQueue<byte[]> speech = new ConcurrentQueue<byte[]>();
+        readonly Dictionary<int, string> heard = new Dictionary<int, string>();
         static readonly List<Pending> pending = new List<Pending>();
         static int mid, seq, lastEventMs;
         static bool ended;
@@ -100,16 +103,20 @@ namespace StealthMode
                 {
                     var data = rx.Receive(ref any);
                     mac = new IPEndPoint(any.Address, EventPort);   // whoever talks to us is the relay
-                    Handle(Encoding.UTF8.GetString(data));
+                    if (data.Length > 4 && data[0] == 0xB0) speech.Enqueue(data);
+                    else Handle(Encoding.UTF8.GetString(data));
                 }
                 catch { if (!running) return; }
             }
         }
 
+        const char BleSpeech = '\u0001';    // BleLink.java: a frame of the Captain's voice, base64 after this mark
+
         // one message from the relay, from either transport (UDP thread or the Bluetooth poll): an ack or a heart-rate reading
         void Handle(string msg)
         {
-            if (msg.Contains("\"agent\"")) { replies.Enqueue(msg); return; }
+            if (msg.Length > 0 && msg[0] == BleSpeech) { speech.Enqueue(System.Convert.FromBase64String(msg.Substring(1))); return; }
+            if (msg.Contains("\"agent\"") || msg.Contains("\"said\"")) { replies.Enqueue(msg); return; }
             if (msg.Contains("\"ack\""))
             {
                 int n = Field(msg, "\"n\":");
@@ -144,6 +151,7 @@ namespace StealthMode
             }
 #endif
             if (rxFlag) { lastRx = now; rxFlag = false; }
+            while (speech.TryDequeue(out var frame)) RadioStream.Feed(frame);
 
             while (acks.TryDequeue(out var n)) pending.RemoveAll(p => p.n == n);
             foreach (var p in pending)
@@ -173,8 +181,11 @@ namespace StealthMode
             if (I == null) return null;
             while (I.replies.TryDequeue(out var json))
             {
+                var m = JsonUtility.FromJson<Message>(json);
+                if (m.type == "said") { I.heard[m.u] = m.t; continue; }
                 if (ctx == null) continue;
                 var r = JsonUtility.FromJson<AgentReply>(json);
+                I.heard.TryGetValue(r.u, out r.heard);
                 if (r.ctx == ctx) return r;
             }
             return null;

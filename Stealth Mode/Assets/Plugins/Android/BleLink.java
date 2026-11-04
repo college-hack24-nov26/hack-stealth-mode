@@ -34,7 +34,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * Finds the Mac's "StealthRelay" GATT service, connects, and keeps the link up (retrying on any failure).
  *   send(json)  queues a message; it is written to the Mac one at a time (write without response)
  *   sendAudio(base64)  the same queue for a binary frame of the Engineer's voice
- *   poll()      returns the next message the Mac sent (heart rate, acks) or null
+ *   poll()      returns the next message the Mac sent (heart rate, acks, the Captain's voice) or null
  * Called from Unity (HeartLink.cs) with an AndroidJavaObject; everything runs on the main looper, no callbacks into C#.
  */
 public class BleLink {
@@ -78,6 +78,12 @@ public class BleLink {
         byte[] b = json.getBytes(StandardCharsets.UTF_8);
         if (b.length > mtu - 3 && mtu > 23) Log.w(T, "message of " + b.length + " B exceeds the " + (mtu - 3) + " B packet");
         queue(b);
+    }
+
+    // text as it is; a frame of the Captain's voice (0xB0) is binary: base64 behind a mark, poll() only carries strings
+    private void receive(byte[] v) {
+        if (v.length > 0 && v[0] == (byte) 0xB0) inbox.add("\u0001" + android.util.Base64.encodeToString(v, android.util.Base64.NO_WRAP));
+        else inbox.add(new String(v, StandardCharsets.UTF_8));
     }
 
     public void sendAudio(String base64) { queue(android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)); }
@@ -170,10 +176,10 @@ public class BleLink {
             if (connected) h.post(BleLink.this::pump); else dropAndRetry();
         }
         @Override public void onCharacteristicWrite(BluetoothGatt g, BluetoothGattCharacteristic c, int st) { writing = false; h.post(BleLink.this::pump); }
-        @Override public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic c, byte[] v) { inbox.add(new String(v, StandardCharsets.UTF_8)); }
+        @Override public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic c, byte[] v) { receive(v); }
         @SuppressWarnings("deprecation")
         @Override public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic c) {
-            if (Build.VERSION.SDK_INT < 33) inbox.add(new String(c.getValue(), StandardCharsets.UTF_8));   // 33+ delivers the byte[] overload above
+            if (Build.VERSION.SDK_INT < 33) receive(c.getValue());   // 33+ delivers the byte[] overload above
         }
     };
 

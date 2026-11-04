@@ -56,7 +56,7 @@ LINES = [
     ("r21_comms_moving", "comms", "Engineer, I'm moving up! Cover me! Shoot at them while I run!"),
     # beat 6: Comms is down in the open, his radio is dead
     ("r22_captain_report", "captain", "Engineer, Alpha Lead! We heard a blast. What happened? Report!"),
-    ("r23_captain_drag", "captain", "Copy, Engineer! Get Comms out of the open. Grab his vest and drag him back behind your container. Move!"),
+    ("r23_captain_drag", "captain", "Copy, Engineer! Get Comms out of the open. Grab him and drag him back behind your container. Move!"),
     ("r24_captain_open", "captain", "Engineer, you're in the open! Get him into cover, now!"),
     ("r25_captain_down", "captain", "Engineer's down! Engineer's down!"),
     ("r23b_captain_keepgoing", "captain", "Copy, Engineer. Keep him moving. Get him behind the steel."),
@@ -436,6 +436,9 @@ def end_stings():
     t = np.arange(int(3.0 * SR)) / SR
     bad = 0.7 * np.sin(2 * np.pi * 55 * t) * env(len(t), 0.005, 1.2) + 0.3 * np.sin(2 * np.pi * 58.3 * t) * env(len(t), 0.2, 1.6)
     write(os.path.join(OUT, "ui_mission_failed.wav"), norm(reverb(bad.astype(np.float32), 1.5, 0.3), 0.75))
+    t = np.arange(int(0.5 * SR)) / SR
+    tone = np.sin(2 * np.pi * 660 * t) * (t < 0.11) + np.sin(2 * np.pi * 880 * t) * (t >= 0.11)
+    write(os.path.join(OUT, "ui_cover_ok.wav"), norm((tone * env(len(t), 0.005, 0.2)).astype(np.float32), 0.5))
 
 
 def main():

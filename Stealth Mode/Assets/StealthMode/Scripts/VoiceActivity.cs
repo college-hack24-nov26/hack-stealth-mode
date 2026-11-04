@@ -9,9 +9,9 @@ namespace StealthMode
     /// Plain level detection: 20 ms frames, a noise floor that follows the room (rain, gunfire leaking out of the
     /// speakers), and an onset once the level stays well above that floor for 250 ms. While our own radio or Comms'
     /// voice is playing it is deaf (that is speech too, coming out of the speakers). A call already under way isn't cut
-    /// off by that. Words are not checked here: while the Captain is listening (Listen set) each call is streamed to the
-    /// Mac as it is spoken, 8 kHz mu-law in 30 ms frames, with the 400 ms before the onset so the first word isn't lost:
-    ///   [0xA0, utterance id, flags (bit 0 last frame, bits 1-2 context: 0 report, 1 sitrep), frame number, audio...]
+    /// off by that. Words are not checked here: during the mission (Listen set) everything he says is streamed to the Mac as
+    /// it is spoken, 8 kHz mu-law in 30 ms frames, with the 400 ms before the onset so the first word isn't lost:
+    ///   [0xA0, utterance id, flags (bit 0 last frame, bits 1-2 context: 0 report, 1 sitrep, 2 free), frame number, audio...]
     /// </summary>
     public class VoiceActivity : MonoBehaviour
     {
@@ -23,7 +23,7 @@ namespace StealthMode
 
         public System.Func<bool> deaf;
 
-        /// <summary>What the Captain is waiting to hear ("report", "sitrep"); null: the voice stays on the headset.</summary>
+        /// <summary>What the Captain is waiting to hear ("report", "sitrep"), "free" if nothing in particular; null: mic stays here.</summary>
         public static string Listen;
 
         const int Rate = 16000, Frame = 320;          // 20 ms
@@ -97,7 +97,7 @@ namespace StealthMode
             if (!streaming)
             {
                 if (!Speaking || Listen == null || capped) return;
-                streaming = true; streamed = 0; utterance++; frameNo = 0; context = (byte)(Listen == "sitrep" ? 1 : 0);
+                streaming = true; streamed = 0; utterance++; frameNo = 0; context = (byte)(Listen == "report" ? 0 : Listen == "sitrep" ? 1 : 2);
                 packet.Clear();
                 while (preRoll.Count > 0) Push(preRoll.Dequeue());
                 return;
@@ -158,7 +158,7 @@ namespace StealthMode
             if (Speaking)
             {
                 if (loud) PeakSpeechLevel = Mathf.Max(PeakSpeechLevel, rms);
-                if (below > (Listen != null ? CallRelease : Release)) Speaking = false;
+                if (below > (Listen != null && Listen != "free" ? CallRelease : Release)) Speaking = false;
             }
         }
 
