@@ -67,5 +67,5 @@ Full contract with `data` fields: `src/lib/scenario.ts`. Minimum for the five sc
 Extra metrics tracked beyond the script: freeze time after the blast, time to first look at the casualty,
 report completeness (who / status / cause / own action), cover-me response, enemy-surge reaction, aim sway,
 friendly-fire risk and no-target rounds, kill reports within 10 s, radio pace (wpm), HR spike, half-recovery,
-HRV (RMSSD) drop, time in stress zones, and a 0–100 readiness score split into Decision, Comms, Composure and
+time in stress zones, and a 0–100 readiness score split into Decision, Comms, Composure and
 Marksmanship.

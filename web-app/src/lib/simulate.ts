@@ -159,11 +159,7 @@ function heart(p: Persona, r: () => number, T0: number, end: number, died: boole
     }
     if (died && t > end - 6000) target += 12;
     bpm += (target - bpm) * 0.35 + (r() - 0.5) * 2.4;
-    const ibi = 60000 / bpm;
-    const hrv = (14 + 30 * control) * (t < 30000 ? 1.4 : t > T0 && t < T0 + 40000 ? 0.45 : 0.8);
-    const beats = Math.max(1, Math.round(1000 / ibi));
-    const rr = Array.from({ length: beats }, () => Math.round(ibi + (r() - 0.5) * hrv));
-    out.push({ t_ms: t, bpm: Math.round(bpm), rr_ms: rr });
+    out.push({ t_ms: t, bpm: Math.round(bpm), rr_ms: null });
   }
   return out;
 }
