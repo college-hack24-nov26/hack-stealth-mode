@@ -105,6 +105,14 @@ namespace StealthMode
             ["r40_captain_comms_lost"] = "Engineer, Alpha Lead. Comms is gone. We lost him. Mission failed.",
             ["r41_captain_copy"] = "Copy, Engineer.",
             ["r42_captain_goodcopy"] = "Good copy.",
+            ["r43_captain_roger"] = "Roger.",
+            ["r44_captain_rogerthat"] = "Roger that, Engineer.",
+            ["r45_captain_staysharp"] = "Good. Stay sharp.",
+            ["r46_captain_one_down"] = "Copy, one down. Good shot.",
+            ["r47_captain_two_down"] = "Copy, two down. Keep it up.",
+            ["r48_captain_three_down"] = "Copy, three down. Good work.",
+            ["r49_captain_tango_down"] = "Copy, tango down. Stay on them.",
+            ["r50_captain_good_kill"] = "Good kill, Engineer.",
         };
 
         // what the captions add for the person in the headset (the controls), after the words on the radio
@@ -173,6 +181,7 @@ namespace StealthMode
             if (!autoPlay) yield return StartGate();
             if (!autoPlay) HeartLink.StartMission();     // an editor play-test opens no debrief run
             VoiceActivity.Listen = "free";               // from here on every word he says goes on the record
+            StartCoroutine(OnTheNet());
             Phase = "briefing";
             yield return new WaitForSeconds(2f);
 
@@ -636,7 +645,8 @@ namespace StealthMode
                 if (called >= 0 ? !VoiceActivity.Speaking : Time.time - tk > 2.5f) break;
                 yield return null;
             }
-            if (!commsTalking && !commsBusy && !radio.isPlaying && comms && !comms.Dead) yield return Shout("v_comms_goodhit");
+            // if he called it himself the Captain answers him on the radio
+            if (called < 0 && !commsTalking && !commsBusy && !radio.isPlaying && comms && !comms.Dead) yield return Shout("v_comms_goodhit");
             while (called < 0 && Time.time - tk < 6f) { Heard(); yield return null; }
         }
 
@@ -978,7 +988,7 @@ namespace StealthMode
         // just weren't checked. Nothing is called when he stays silent for `silence` seconds.
         IEnumerator Hear(string ctx, float since, float silence, System.Func<bool> stop, System.Action<float> voice, System.Action<HeartLink.AgentReply> done)
         {
-            HeartLink.TakeReply(null);          // nothing left over from an earlier exchange
+            while (HeartLink.TakeReply(ctx) != null) { }    // nothing left over from an earlier exchange
             if (autoPlay && !autoPlaySilent)
             {
                 yield return new WaitForSeconds(2f);
@@ -1056,6 +1066,23 @@ namespace StealthMode
             else if (called >= 0) yield return Say("r23b_captain_keepgoing");
         }
 
+        // The running talk on the net: whatever the Engineer says outside the set exchanges, the Captain answers in the first gap
+        // in the traffic. If the net stays busy the moment has passed and he lets it go.
+        IEnumerator OnTheNet()
+        {
+            while (!finished)
+            {
+                var r = HeartLink.TakeReply("free");
+                if (r != null)
+                {
+                    for (float t = Time.time; (radio.isPlaying || RadioStream.Playing) && Time.time - t < 4f;) yield return null;
+                    for (var newer = HeartLink.TakeReply("free"); newer != null; newer = HeartLink.TakeReply("free")) r = newer;   // only the latest still matters
+                    if (!radio.isPlaying && !RadioStream.Playing && !finished) yield return Speak(r);
+                }
+                yield return null;
+            }
+        }
+
         // the Captain's answer in two steps, like a man on a radio: the instant "Copy" (a clip already on the headset), then his
         // real answer to what was said, coming over the link while the "Copy" plays. What the Engineer said shows meanwhile, so
         // he sees he was understood. If the real answer doesn't come in time: the pre-made line.
@@ -1069,6 +1096,7 @@ namespace StealthMode
             {
                 string words = null; int frames = 0;
                 for (float t = Time.time; !HeartLink.TakeSpeech(r.u, out words, out frames) && Time.time - t < 5f;) yield return null;
+                for (float t = Time.time; radio.isPlaying && Time.time - t < 8f;) yield return null;   // the net is someone else's
                 if (frames > 0) RadioStream.Expect(r.u, frames);
                 for (float t = Time.time; frames > 0 && !RadioStream.Started && Time.time - t < 4f;) yield return null;
                 if (frames > 0 && RadioStream.Started)

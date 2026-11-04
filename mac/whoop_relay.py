@@ -251,7 +251,21 @@ def ascii_words(s, n):
     return (s or "").encode("ascii", "ignore").decode()[:n]
 
 
+SITUATION = {
+    "briefing": "You and Doc are in position at the rear of the warehouse. The team is about to take the outside guards.",
+    "contact": "The team is taking down the outside guards. You and Doc are at the rear of the warehouse.",
+    "escalation": "The enemy rushed out front and is firing at the Engineer's container. You and Doc are going in the back door to the device.",
+    "rain": "You and Doc are inside at the device. Heavy rain, both snipers are blind. The Engineer and Comms hold the front alone.",
+    "casualty": "Comms hit a trip mine and lies wounded in the open. The Engineer must drag him behind the container. You and Doc are at the device.",
+    "holdout": "Comms is in cover behind the container with the Engineer. You and Doc are finishing the device.",
+    "extraction": "The device is neutralised. You and Doc are clearing the last enemies and coming to them.",
+}
+
+
 class Mission:
+    def situation(self):
+        return f"{SITUATION.get(self.phase, '')} {max(10 - self.enemies_down, 0)} enemies left. The Engineer has {self.my_kills} kills."
+
     def __init__(self, mid, t0):
         self.mid, self.t0 = mid, t0
         self.via = "udp"                # the channel the headset started the mission on; heart rate goes back the same way
@@ -264,6 +278,7 @@ class Mission:
         self.lock = asyncio.Lock()
         self.window, self.baseline, self.hr = [], None, 0
         self.captain, self.calls, self.answered, self.radio_said = None, {}, set(), []     # calls: u -> {buf, ctx, src, last}
+        self.phase, self.enemies_down, self.my_kills = "contact", 0, 0
         self.bad_rr = self.n_hr = self.n_ev = 0
         stamp = time.strftime("%Y%m%d_%H%M%S")
         self.hr_f = open(os.path.join(OUT, f"whoop_{stamp}.csv"), "w", newline="", buffering=1)
@@ -358,6 +373,11 @@ class Relay:
         mi.seen.add(n)
         t_ms = int(m.get("t_ms", 0))
         mi.ev_out.append({"t_ms": t_ms, "type": ev, "actor": m.get("actor"), "data": m.get("data", {})})
+        if ev == "phase":
+            mi.phase = m.get("data", {}).get("id", mi.phase)
+        elif ev == "enemy_down":
+            mi.enemies_down += 1
+            mi.my_kills += m.get("actor") == "engineer"
         if ev == "radio" and m.get("actor") != "engineer":
             mi.radio_said.append(str(m.get("data", {}).get("transcript", "")).lower().strip(" .,!?"))
         mi.ev_csv.writerow([round(time.time(), 3), t_ms, ev, m.get("actor"), mi.hr])
@@ -402,7 +422,7 @@ class Relay:
                 for u, c in list(mi.calls.items()):
                     if time.time() - c["last"] > CALL_GAP_S:
                         await self.answer(mi, u)
-                    elif c["ctx"] != "free" and len(c["buf"]) >= 4000 and tail_is_quiet(c["buf"]):
+                    elif len(c["buf"]) >= 3000 and tail_is_quiet(c["buf"]):
                         # his voice just dropped: start listening to it now, before the headset says the call is over
                         # (again if that was only a pause and he has said more since)
                         n = len(c["buf"])
@@ -418,9 +438,6 @@ class Relay:
         raw, src, ctx = bytes(call["buf"]), call["src"], call["ctx"]
         t0 = call.get("ended", time.time())
         try:
-            if ctx == "free":           # nobody asked him anything: his words still go on the record
-                self.record_words(mi, call, await asyncio.to_thread(self.ear.hear, raw, save))
-                return
             # Type 1: the early listen if nothing but quiet came after it, else listen now; Laya decides
             text = None
             if call.get("early"):
@@ -430,14 +447,20 @@ class Relay:
                     text = said
             if text is None:
                 text = await asyncio.to_thread(self.ear.quick, raw)
+            if ctx == "free" and self.echo(mi, text):
+                log(f"radio  ignored our own radio in the mic: \"{text}\"")
+                return
             r = await asyncio.to_thread(mi.captain.decide, ctx, text)
+            if r["intent"] == "free_none":
+                asyncio.ensure_future(self.keep_record(mi, call, raw, save))
+                return
             self.reply(src, {"type": "said", "u": u, "t": ascii_words(r["heard"], 190)})
             self.reply(src, {**{k: r[k] for k in ("ack", "clip", "intent", "done", "cover", "comms", "backup")},
                              "type": "agent", "u": u, "ctx": ctx, "tts": 1 if r["goal"] else 0})
             t1 = time.time()
             asyncio.ensure_future(self.keep_record(mi, call, raw, save))
             # Type 2: Claude writes the answer, the Mac speaks it
-            reply = await asyncio.to_thread(self.brain.ask, mi.captain.brief(r["heard"], r["goal"])) if r["goal"] else ""
+            reply = await asyncio.to_thread(self.brain.ask, mi.captain.brief(r["heard"], r["goal"], mi.situation())) if r["goal"] else ""
             t2 = time.time()
             speech = await asyncio.to_thread(self.mouth.speak, reply) if reply else None
             t3 = time.time()
@@ -445,7 +468,7 @@ class Relay:
             log(f"voice error: {e!r}")
             return
         log(f"radio  {ctx:<7} {len(raw) / 8000:4.1f} s of voice | decision +{t1 - t0:.2f} s | claude {t2 - t1:.2f} s, voice {t3 - t2:.2f} s, "
-            f"answer ready +{t3 - t0:.2f} s | heard \"{r['heard']}\" -> {r['intent']} | says \"{reply or r['clip']}\"")
+            f"answer ready +{t3 - t0:.2f} s | heard \"{r['heard']}\" -> {r['intent']} | says \"{reply or r['clip'] or r['ack']}\"")
         if r["goal"]:
             frames = -(-len(speech) // SPEECH_FRAME) if speech else 0
             self.reply(src, {"type": "speak", "u": u, "frames": frames, "reply": ascii_words(reply, 150)})
@@ -455,28 +478,25 @@ class Relay:
     async def keep_record(self, mi, call, raw, save):
         """The accurate words for the debrief, without holding anything up."""
         try:
-            text = await asyncio.to_thread(self.ear.hear, raw, save)
+            self.record_words(mi, call, await asyncio.to_thread(self.ear.hear, raw, save))
         except Exception as e:
             log(f"voice error: {e!r}")
-            return
-        if text:
-            t_ms = call["t_ms"]
-            mi.ev_out.append({"t_ms": t_ms, "type": "radio", "actor": "engineer", "data": {"transcript": text, "end_ms": t_ms + len(raw) // 8}})
-            log(f"radio  record  \"{text}\"")
+
+    @staticmethod
+    def echo(mi, text):
+        """Our own radio leaking from the headset speakers into its mic."""
+        clean = (text or "").lower().strip(" .,!?")
+        return any(difflib.SequenceMatcher(None, clean, said).ratio() > 0.7 for said in mi.radio_said)
 
     def record_words(self, mi, call, text):
-        """Whatever he says outside an exchange: on the debrief timeline in his own words, unless it is our own radio leaking
-        from the headset speakers into its mic."""
+        """Whatever he says: on the debrief timeline in his own words."""
         clean = (text or "").lower().strip(" .,!?")
-        if len(clean) < 3 or clean in NOISE:
-            return
-        if any(difflib.SequenceMatcher(None, clean, said).ratio() > 0.7 for said in mi.radio_said):
-            log(f"radio  ignored our own radio in the mic: \"{text}\"")
+        if len(clean) < 3 or clean in NOISE or self.echo(mi, text):
             return
         t_ms = call["t_ms"]
         mi.ev_out.append({"t_ms": t_ms, "type": "radio", "actor": "engineer", "data": {
             "transcript": text, "end_ms": t_ms + int(len(call["buf"]) / 8)}})
-        log(f"radio  free    {len(call['buf']) / 8000:4.1f} s of voice | heard \"{text}\"")
+        log(f"radio  record  \"{text}\"")
 
     async def send_speech(self, src, u, speech):
         frames = [speech[i:i + SPEECH_FRAME] for i in range(0, len(speech), SPEECH_FRAME)]

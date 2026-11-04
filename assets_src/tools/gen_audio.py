@@ -79,6 +79,15 @@ LINES = [
     # the instant acknowledgement that plays while Claude writes the real answer (mac/captain_agent.py)
     ("r41_captain_copy", "captain", "Copy, Engineer."),
     ("r42_captain_goodcopy", "captain", "Good copy."),
+    # the running talk on the net: his instant answers to "copy", "roger" and kill calls
+    ("r43_captain_roger", "captain", "Roger."),
+    ("r44_captain_rogerthat", "captain", "Roger that, Engineer."),
+    ("r45_captain_staysharp", "captain", "Good. Stay sharp."),
+    ("r46_captain_one_down", "captain", "Copy, one down. Good shot."),
+    ("r47_captain_two_down", "captain", "Copy, two down. Keep it up."),
+    ("r48_captain_three_down", "captain", "Copy, three down. Good work."),
+    ("r49_captain_tango_down", "captain", "Copy, tango down. Stay on them."),
+    ("r50_captain_good_kill", "captain", "Good kill, Engineer."),
 ]
 
 # Comms' own voice in the air only (no radio): short shouts, and his voice after the blast has killed his radio

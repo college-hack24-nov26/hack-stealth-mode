@@ -9,6 +9,9 @@ The headset streams the Engineer's voice as he speaks (8 kHz mu-law frames, see 
                                          -> macOS say through the mission's radio chain -> streamed to the Quest
     Record, in the background            Whisper large-v3-turbo: the accurate transcript for the debrief app
 
+Outside the two set exchanges (report, sitrep) he stays on the net like a real commander: "copy", "roger" and kill calls get an
+instant pre-made answer from Type 1 alone; anything else he says goes to Claude with the live state of the mission.
+
 If Claude or the voice fails, the mission's pre-made radio clips take over: the run never hangs on this.
 
     python3 mac/captain_agent.py report "Comms is down, trip mine"          # try sentences (sitrep for the sitrep)
@@ -26,7 +29,7 @@ VOICE, RATE, PITCH = "Aman", 168, 0.94      # the Captain in assets_src/tools/ge
 SR = 8000
 GPU = concurrent.futures.ThreadPoolExecutor(1)      # MLX is not thread safe: both Whispers and Laya run on this one thread
 # vocabulary only: a sentence here gets echoed back on noise
-PROMPT = "Alpha Lead, Engineer, Comms, Doc, trip mine, casualty, container, cover, backup, medic, sitrep, tango."
+PROMPT = "Copy. Roger that. Wilco. Tango down. One man down. Alpha Lead, Engineer, Comms, Doc, trip mine, casualty, container, cover, backup, medic, sitrep."
 # what Whisper tends to invent from noise
 NOISE = {"", "you", "thank you", "thanks", "thanks for watching", "thank you for watching", "bye", "okay", "ok", "so", "the", "oh", "uh", "um"}
 
@@ -35,14 +38,22 @@ COVER = r"\b(cover|covered|behind|container|safe|shipment|steel|hidden|concealed
 COMMS = r"\b(comm?s?|comm's|communicator|casualty|wounded|injured|him|he|he's|teammate|buddy|brother)\b"
 BACKUP = r"\b(back ?up|support|medic|doc|doctor|help|assist|assistance|reinforce|reinforcements|evac|evacuation|extract|extraction|need|send|requesting|request)\b"
 
+# the whole call is only an acknowledgement
+ACK = r"^(?:(?:copy|copied|roger|wilco|understood|affirmative|acknowledged|got it|on it|will do|yes|yes sir|sir|that|solid|good|moving|captain|alpha lead|lead|engineer|out|over)\b[ ]*)+$"
+KILL = (r"\b(?:(?:man|men|guy|guys|tango|tangos|target|targets|enemy|enemies|hostile|hostiles|bad guy|bad guys|one|two|three|four|five|six)\b ?(?:is |are |was |were )?"
+        r"(?:down|dead|neutrali[sz]ed|eliminated|killed|dropped|hit)\b|he's down|got him|got one|got two|dropped him|killed him|kill confirmed|confirmed kill|enemy killed)")
+COUNT = {"one": 1, "two": 2, "three": 3, "1": 1, "2": 2, "3": 3}
+ROGER = ("r43_captain_roger", "r44_captain_rogerthat", "r45_captain_staysharp")
+KILLED = {1: "r46_captain_one_down", 2: "r47_captain_two_down", 3: "r48_captain_three_down"}
+GOOD_KILL = ("r49_captain_tango_down", "r50_captain_good_kill")
+
 ASK = (("cover", "r31_captain_ask_cover"), ("comms", "r32_captain_ask_comms"), ("backup", "r33_captain_ask_backup"))
 
-PERSONA = ("You are Alpha Lead, Captain of an Indian Army special forces team, on a tactical radio in a firefight. You and Doc are inside "
-           "the warehouse at the device. The Engineer and Comms are out front at a shipping container; the last enemies are still firing. "
-           "Comms hit a trip mine and is badly wounded. Each message gives what the Engineer just said and what your answer must do. "
-           "Speak like a real officer on the radio: calm, direct, plain words, full short sentences. Answer what he actually said. Start with "
-           "his news, not with 'Copy': you have already acknowledged him. At most 14 words. Never invent positions, numbers, snipers or orders "
-           "beyond what you are told. Output only the words you say on the radio.")
+PERSONA = ("You are Alpha Lead, Captain of an Indian Army special forces team, on a tactical radio during a raid on a warehouse holding a "
+           "bomb. You are talking to your Engineer, out front with Comms at a shipping container. Each message gives the situation right now, "
+           "what the Engineer just said and what your answer must do. Speak like a real officer on a live net: calm, direct, clipped, plain "
+           "words. Answer what he actually said. At most 14 words. Never invent positions, numbers, snipers or orders beyond the situation "
+           "you are given. Output only the words you say on the radio.")
 LAYA = {
     "report": {"type": "noul", "instructions": "Is someone reporting that a teammate is hurt or down, or that there was an explosion or a mine?"},
     "cover": {"type": "noul", "instructions": "Is the speaker saying they are in cover, or behind something, or safe?"},
@@ -50,9 +61,14 @@ LAYA = {
     "backup": {"type": "noul", "instructions": "Is the speaker asking for backup, support, help or a medic?"},
 }
 LAYA_YES = {"report": 0.5, "cover": 0.6, "comms": 0.5, "backup": 0.7}
-GOAL = {"report": "repeat back what happened and order him to drag Comms behind the container now",
+LAYA_FREE = {
+    "ack": {"type": "noul", "instructions": "Is the speaker only acknowledging an order, like copy, roger or understood?"},
+    "kill": {"type": "noul", "instructions": "Is the speaker reporting that he shot or killed an enemy?"},
+}
+GOAL = {"report": "repeat back what happened and order him to drag Comms behind the container now. Start with his news, you have already said copy",
         "cover": "ask him to confirm he is in cover", "comms": "ask for Comms' status and whether he is with him",
-        "backup": "ask whether he needs support", None: "tell him to hold there, you and Doc are coming to him"}
+        "backup": "ask whether he needs support", None: "tell him to hold there, you and Doc are coming to him. You have already said good copy",
+        "free": "answer him as his commanding officer would, right now, and give a short order if one fits"}
 
 
 def decode_ulaw(raw):
@@ -141,13 +157,13 @@ class Reflex:
         except Exception as e:
             self.log(f"Captain has no Laya: {e!r}. Word grammar only")
 
-    def judge(self, text):
+    def judge(self, text, questions=LAYA, yes=None):
         """-> {question: 0/1}"""
         if not self.agent:
             return {}
         try:
-            a = GPU.submit(self.agent.predict, text, LAYA).result()["answers"]
-            return {k: 1 if a[k]["noul"] >= LAYA_YES[k] else 0 for k in LAYA}
+            a = GPU.submit(self.agent.predict, text, questions).result()["answers"]
+            return {k: 1 if a[k]["noul"] >= (yes or LAYA_YES).get(k, 0.7) else 0 for k in questions}
         except Exception:
             return {}
 
@@ -262,6 +278,12 @@ class Captain:
         self.said_again = 0
         self.rounds = 0
         self.slots = {"cover": 0, "comms": 0, "backup": 0}
+        self.turn = 0
+        self.last_free = 0.0
+
+    def next(self, lines):
+        self.turn += 1
+        return lines[self.turn % len(lines)]
 
     @staticmethod
     def has(pattern, text):
@@ -273,11 +295,34 @@ class Captain:
             return {"ack": "", "clip": "", "goal": None, "intent": "no_ears", "done": 1, "heard": "", **self.slots}
         clean = " ".join(re.sub(r"[^a-z' ]", " ", text.lower()).split())
         usable = clean not in NOISE
+        if ctx == "free":
+            return {**self.free(clean, text, usable), "heard": text, **self.slots}
         laya = self.reflex.judge(text) if self.reflex and usable else {}
         r = self.report(clean, usable, laya) if ctx == "report" else self.sitrep(clean, usable, laya)
         return {**r, "heard": text, **self.slots}
 
+    def free(self, clean, text, usable):
+        """The running talk on the net. Words he knows answer at once; only real sentences wait for Claude."""
+        none = {"ack": "", "clip": "", "goal": None, "intent": "free_none", "done": 1}
+        if not usable or time.time() - self.last_free < 1.5:
+            return none
+        ack, kill = bool(re.match(ACK, clean)), bool(re.search(KILL, clean))
+        if not ack and not kill and self.reflex:
+            laya = self.reflex.judge(text, LAYA_FREE)
+            ack, kill = laya.get("ack") and len(clean.split()) <= 3, laya.get("kill")
+        self.last_free = time.time()
+        if kill:
+            count = next((COUNT[w] for w in clean.split() if w in COUNT), None)
+            return {**none, "ack": KILLED.get(count) or self.next(GOOD_KILL), "intent": "free_kill"}
+        if ack:
+            return {**none, "ack": self.next(ROGER), "intent": "free_ack"}
+        if len(clean.split()) >= 3:
+            return {**none, "goal": GOAL["free"], "intent": "free_talk"}
+        return none
+
     def report(self, clean, usable, laya):
+        if usable and re.match(ACK, clean):     # "copy" is no report: he asks for one
+            return {"ack": "", "clip": "r22_captain_report", "goal": None, "intent": "report_unclear", "done": 0}
         if usable and (laya.get("report") or self.has(REPORT, clean)):
             return {"ack": "r41_captain_copy", "clip": "r23_captain_drag", "goal": GOAL["report"], "intent": "report_ok", "done": 1}
         if self.said_again == 0:
@@ -286,6 +331,8 @@ class Captain:
         return {"ack": "", "clip": "r23_captain_drag", "goal": None, "intent": "report_unclear", "done": 1}     # he has a man down: don't stall him
 
     def sitrep(self, clean, usable, laya):
+        if usable and re.match(ACK, clean):     # "copy" is no sitrep: he asks for it
+            return {"ack": "", "clip": "r28_captain_status", "goal": None, "intent": "sitrep_unclear", "done": 0}
         before = dict(self.slots)
         if usable:
             for slot, pattern in (("cover", COVER), ("comms", COMMS), ("backup", BACKUP)):
@@ -302,8 +349,8 @@ class Captain:
         return {"ack": "r41_captain_copy", "clip": dict(ASK)[missing], "goal": GOAL[missing], "intent": "sitrep_partial", "done": 0}
 
     @staticmethod
-    def brief(said, goal):
-        return f'The Engineer said: "{said}". Your answer must: {goal}.'
+    def brief(said, goal, situation=""):
+        return f'Situation: {situation} The Engineer said: "{said}". Your answer must: {goal}.'
 
 
 if __name__ == "__main__":

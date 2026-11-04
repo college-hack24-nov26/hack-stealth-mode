@@ -41,6 +41,7 @@ namespace StealthMode
         readonly ConcurrentQueue<byte[]> speech = new ConcurrentQueue<byte[]>();
         readonly Dictionary<int, string> heard = new Dictionary<int, string>();
         readonly Dictionary<int, Message> spoken = new Dictionary<int, Message>();
+        readonly List<AgentReply> answers = new List<AgentReply>();
         static readonly List<Pending> pending = new List<Pending>();
         static int mid, seq, lastEventMs;
         static bool ended;
@@ -176,7 +177,7 @@ namespace StealthMode
             }
         }
 
-        /// <summary>The next answer for this exchange, or null. TakeReply(null) just empties the queue.</summary>
+        /// <summary>The next answer for this exchange ("report", "sitrep", "free"), or null.</summary>
         public static AgentReply TakeReply(string ctx)
         {
             if (I == null) return null;
@@ -185,12 +186,15 @@ namespace StealthMode
                 var m = JsonUtility.FromJson<Message>(json);
                 if (m.type == "said") { I.heard[m.u] = m.t; continue; }
                 if (m.type == "speak") { I.spoken[m.u] = m; continue; }
-                if (ctx == null) continue;
                 var r = JsonUtility.FromJson<AgentReply>(json);
                 I.heard.TryGetValue(r.u, out r.heard);
-                if (r.ctx == ctx) return r;
+                I.answers.Add(r);
             }
-            return null;
+            int i = I.answers.FindIndex(a => a.ctx == ctx);
+            if (i < 0) return null;
+            var found = I.answers[i];
+            I.answers.RemoveAt(i);
+            return found;
         }
 
         /// <summary>The Captain's real answer to call u has been written: his words and how many frames of speech follow (0: none).</summary>

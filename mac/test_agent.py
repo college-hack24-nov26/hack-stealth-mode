@@ -13,11 +13,16 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 HR_PORT, EVENT_PORT = 5015, 5016
 RELAY = ("127.0.0.1", EVENT_PORT)
-CASES = [   # context, what he says, the intent the Captain must reach
-    ("report", "Alpha Lead, Comms is down. He hit a trip mine. He's wounded.", "report_ok"),
-    ("sitrep", "We are behind the container.", "sitrep_partial"),
-    ("sitrep", "Comms is with me. He's hurt but protected.", "sitrep_partial"),
-    ("sitrep", "Requesting backup and a medic.", "sitrep_full"),
+CASES = [   # context, what he says, the intent the Captain must reach, the instant clip if there is one
+    ("free", "Copy.", "free_ack", None),
+    ("free", "Roger that.", "free_ack", None),
+    ("free", "Two men down.", "free_kill", "r47_captain_two_down"),
+    ("free", "Tango down.", "free_kill", None),
+    ("free", "Where are the enemies firing from?", "free_talk", None),
+    ("report", "Alpha Lead, Comms is down. He hit a trip mine. He's wounded.", "report_ok", None),
+    ("sitrep", "We are behind the container.", "sitrep_partial", None),
+    ("sitrep", "Comms is with me. He's hurt but protected.", "sitrep_partial", None),
+    ("sitrep", "Requesting backup and a medic.", "sitrep_full", None),
 ]
 
 
@@ -96,7 +101,8 @@ event("mission_start")
 time.sleep(1)
 ok = True
 acks, fulls = [], []
-for u, (ctx, text, want) in enumerate(CASES, 1):
+for u, (ctx, text, want, clip) in enumerate(CASES, 1):
+    time.sleep(2)
     a = ulaw(speak(text))
     tail = ulaw(np.random.default_rng(u).normal(0, 0.002, 4800).astype(np.float32))      # 0.6 s of quiet: the headset's end of call
     a += tail
@@ -104,16 +110,20 @@ for u, (ctx, text, want) in enumerate(CASES, 1):
     t_start = time.time()
     for i, f in enumerate(frames):
         last = i == len(frames) - 1
-        s.sendto(bytes([0xA0, u, (1 if last else 0) | (1 if ctx == "sitrep" else 0) << 1, i & 255]) + f, RELAY)
+        s.sendto(bytes([0xA0, u, (1 if last else 0) | {"report": 0, "sitrep": 1, "free": 2}[ctx] << 1, i & 255]) + f, RELAY)
         time.sleep(max(0, t_start + (i + 1) * 0.03 - time.time()))      # in real time, like the headset
     said, r, sp, t_agent, t_voice, audio = wait_reply(10)
-    good = r is not None and r["intent"] == want and sp is not None and sp["frames"] > 0 and len(audio) > 8000
-    ok &= good
+    good = r is not None and r["intent"] == want and (clip is None or r["ack"] == clip)
+    if r and r["tts"]:
+        good = good and sp is not None and sp["frames"] > 0 and len(audio) > 8000
+    ok &= bool(good)
     # measured from his last word: the 0.6 s of quiet is part of it
-    ack, full = 0.6 + (t_agent or 99), 0.6 + (t_voice or 99)
-    acks.append(ack); fulls.append(full)
+    ack, full = 0.6 + (t_agent or 99), 0.6 + (t_voice or 0)
+    acks.append(ack)
+    if t_voice:
+        fulls.append(full)
     print(f"{'PASS' if good else 'FAIL'}  said: {text}\n      heard: {said}\n      "
-          f"Copy after {ack:.2f} s, answer starts arriving after {full:.2f} s: {sp and sp['reply']}  ({r and r['intent']})")
+          f"instant {r and r['ack'] or '-'} after {ack:.2f} s" + (f", spoken answer after {full:.2f} s: {sp and sp['reply']}" if t_voice else "") + f"  ({r and r['intent']})")
 print(f"from his last word: Copy {min(acks):.2f}-{max(acks):.2f} s, answer {min(fulls):.2f}-{max(fulls):.2f} s (before the link and the 0.4 s playback buffer)")
 event("mission_end", {"outcome": "success", "reason": "agent test"})
 time.sleep(3)
