@@ -36,6 +36,14 @@ namespace StealthMode
             foreach (var s in inputs) s.trackingOriginUpdated += OnOriginJump;
         }
 
+        // Foveation is off until asked for. Medium: full detail wherever you look straight at, lighter only at the edge of the lens.
+        void Start()
+        {
+            var displays = new List<XRDisplaySubsystem>();
+            SubsystemManager.GetSubsystems(displays);
+            foreach (var d in displays) d.foveatedRenderingLevel = 0.5f;
+        }
+
         void OnDestroy()
         {
             foreach (var s in inputs) s.trackingOriginUpdated -= OnOriginJump;

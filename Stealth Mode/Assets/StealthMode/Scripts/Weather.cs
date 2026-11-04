@@ -82,6 +82,7 @@ namespace StealthMode
             RenderSettings.fogColor = Color.Lerp(Color.Lerp(fogC0, FogStormColor, k), new Color(0.75f, 0.78f, 0.85f), flash);
             RenderSettings.ambientProbe = ambient0 * (Mathf.Lerp(1f, AmbientStorm, k) + flash * 1.6f);
             if (sky && sky.HasProperty("_Exposure")) sky.SetFloat("_Exposure", Mathf.Lerp(sky0, sky0 * 0.3f, k) + flash * 1.2f);
+            Shader.SetGlobalFloat("_SkyStorm", k); Shader.SetGlobalFloat("_SkyFlash", flash);    // the sky dome and the plants
         }
 
         float flash;
@@ -157,6 +158,7 @@ namespace StealthMode
         {
             if (sun) { sun.intensity = sunI0; sun.color = sunC0; }
             RenderSettings.fogDensity = fog0; RenderSettings.fogColor = fogC0; RenderSettings.ambientProbe = ambient0;
+            Shader.SetGlobalFloat("_SkyStorm", 0); Shader.SetGlobalFloat("_SkyFlash", 0);
         }
     }
 }

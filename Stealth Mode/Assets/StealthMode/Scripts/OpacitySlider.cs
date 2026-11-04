@@ -8,7 +8,10 @@ namespace StealthMode
     /// Scene opacity, poked with the LEFT index fingertip (Shadow Batter's panel, rebuilt): a small "OPACITY" pill floats
     /// low on the Engineer's left and lazily follows the head. Touch the pill to open it; drag the fingertip along the
     /// track to set 20-100 %; touch the red x to close. It scales the alpha of every translucent (_mr) material, i.e.
-    /// terrain, props, nature and soldiers; the warehouse and containers stay solid. Desktop: [ and ] keys.
+    /// terrain, hills, plants, rocks, sky, props and soldiers; the warehouse and containers stay solid. Desktop: [ and ] keys.
+    /// Nothing in the scene blends with anything else: every surface is drawn as a plain solid with depth, and only the alpha left
+    /// in the frame carries the slider, so the headset shows passthrough, never another object, behind the nearest surface.
+    /// Materials baked fully opaque (Comms, the Engineer's rifle) stay at 100 %.
     /// </summary>
     public class OpacitySlider : MonoBehaviour
     {
@@ -16,8 +19,9 @@ namespace StealthMode
         public Transform trackingSpace;
         [Range(0.2f, 1f)] public float value = 0.7f;
 
-        const float Min = 0.2f, Max = 1f, EnvAlpha = 0.7f;   // EnvAlpha = what the scene builder baked into the _mr materials
+        const float Min = 0.2f, Max = 1f;
         const float TrackHalf = 0.075f;
+        const int QueueSolid = 2000, QueueCutout = 2450, QueueSky = 2499;   // the opaque pass: nearest first, sky last, only into what's left
 
         // Shadow Batter's stadium-neon palette
         static readonly Color Bg = new Color32(12, 15, 14, 200), Track = new Color32(23, 29, 24, 255), Lime = new Color32(168, 230, 66, 255),
@@ -27,7 +31,7 @@ namespace StealthMode
         TextMesh title;
         Material knobMat;
         bool expanded, armed = true;
-        readonly List<(Material m, float a)> mats = new List<(Material, float)>();
+        readonly List<(Material m, float a, float cutoff)> mats = new List<(Material, float, float)>();
         XRHandSubsystem hands;
         static readonly List<XRHandSubsystem> found = new List<XRHandSubsystem>();
 
@@ -52,7 +56,15 @@ namespace StealthMode
                     if (!copies.TryGetValue(m, out var c))
                     {
                         c = new Material(m) { name = m.name + " (opacity)" };
-                        copies[m] = c; mats.Add((c, m.GetColor("_BaseColor").a));
+                        bool cutout = m.HasProperty("_Cutoff") && (!m.HasProperty("_AlphaClip") || m.GetFloat("_AlphaClip") > 0.5f);
+                        float baked = m.GetColor("_BaseColor").a;
+                        if (baked >= 0.5f) c.renderQueue = m.name == "Sky_mr" ? QueueSky : cutout ? QueueCutout : QueueSolid;   // real glass (0.25) stays glass
+                        if (baked >= 0.5f && m.HasProperty("_DstBlend"))     // these ship premultiplied: overwrite instead of blend, with depth on
+                        {
+                            c.SetFloat("_SrcBlend", 1); c.SetFloat("_DstBlend", 0); c.SetFloat("_SrcBlendAlpha", 1); c.SetFloat("_DstBlendAlpha", 0);
+                            c.SetFloat("_ZWrite", 1);
+                        }
+                        copies[m] = c; mats.Add((c, m.GetColor("_BaseColor").a, m.HasProperty("_AlphaClip") && m.GetFloat("_AlphaClip") > 0.5f ? 0.45f : 0));
                     }
                     shared[i] = c; changed = true;
                 }
@@ -62,7 +74,11 @@ namespace StealthMode
 
         void Apply()
         {
-            foreach (var (m, a) in mats) { var c = m.GetColor("_BaseColor"); c.a = Mathf.Clamp01(a / EnvAlpha * value); m.SetColor("_BaseColor", c); }
+            foreach (var (m, a, cutoff) in mats)
+            {
+                var c = m.GetColor("_BaseColor"); c.a = a > 0.99f ? 1f : a < 0.5f ? a / 0.7f * value : value; m.SetColor("_BaseColor", c);
+                if (cutoff > 0) m.SetFloat("_Cutoff", cutoff * c.a);     // fence wire and the like keep their shape at any opacity
+            }
             if (title) title.text = $"OPACITY   {Mathf.RoundToInt(value * 100)}%";
             float x = Mathf.Lerp(-TrackHalf, TrackHalf, Mathf.InverseLerp(Min, Max, value));
             if (knob) knob.localPosition = new Vector3(x, -0.012f, -0.006f);

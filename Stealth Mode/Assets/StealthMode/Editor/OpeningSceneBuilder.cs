@@ -453,6 +453,7 @@ namespace StealthMode.EditorTools
 
             BuildActors();
             MakeTranslucent();
+            OutsideWorldBuilder.Build();
 
             Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
             EditorSceneManager.SaveScene(scene, ScenePath);
