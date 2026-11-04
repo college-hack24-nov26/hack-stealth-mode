@@ -75,14 +75,31 @@ export function scale(v: number | null | undefined, good: number, bad: number): 
 function mean(xs: number[]) { return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; }
 function avgOf(parts: (number | null)[]) { return mean(parts.filter((p): p is number => p != null)); }
 
-// The WHOOP's live broadcast has no R-R intervals, so without them each once-a-second reading stands in for one beat
-// interval (60000 / bpm). That follows the trend of real RMSSD but it is an estimate, and the debrief labels it so.
+function rootMeanSquare(d: number[]) { return Math.sqrt(d.reduce((x, v) => x + v * v, 0) / d.length); }
+
+// True RMSSD from the R-R intervals. The WHOOP broadcasts them only in bursts, so differences are taken inside an unbroken
+// stretch of readings, and an interval far from what the heart rate implies (a missed beat) is left out.
 function rmssd(samples: HrSample[]) {
-  let rr = samples.flatMap((x) => x.rr_ms ?? []);
-  if (rr.length < 8) rr = samples.filter((x) => x.bpm >= 30 && x.bpm <= 220).map((x) => 60000 / x.bpm);
-  if (rr.length < 8) return null;
-  const d = rr.slice(1).map((v, i) => (v - rr[i]) ** 2);
-  return Math.sqrt(d.reduce((a, b) => a + b, 0) / d.length);
+  const d: number[] = [];
+  let last: number | null = null, lastT = -Infinity;
+  for (const x of samples) {
+    if (x.t_ms - lastT > 2500) last = null;
+    for (const v of x.rr_ms ?? []) {
+      const expected = 60000 / x.bpm;
+      if (v < expected * 0.75 || v > expected * 1.25) { last = null; continue; }
+      if (last != null) d.push(v - last);
+      last = v;
+    }
+    if (x.rr_ms?.length) lastT = x.t_ms;
+  }
+  return d.length >= 8 ? rootMeanSquare(d) : null;
+}
+
+// Without enough of them: the same sum on the interval each once-a-second reading implies (60000 / bpm). It follows the trend
+// of real RMSSD but it is an estimate, and the debrief labels it so.
+function rmssdEstimate(samples: HrSample[]) {
+  const rr = samples.filter((x) => x.bpm >= 30 && x.bpm <= 220).map((x) => 60000 / x.bpm);
+  return rr.length >= 8 ? rootMeanSquare(rr.slice(1).map((v, i) => v - rr[i])) : null;
 }
 
 function words(t: string) { return t.trim().split(/\s+/).filter(Boolean).length; }
@@ -233,7 +250,8 @@ export function computeMetrics(rawEvents: SessionEvent[], rawHr: HrSample[], dur
     const base = mean(hr.filter((x) => x.t_ms < briefEnd).map((x) => x.bpm)) ?? hr[0].bpm;
     const peak = hr.reduce((a, b) => (b.bpm > a.bpm ? b : a));
     let at_blast: number | null = null, rise: number | null = null, half: number | null = null;
-    let rmssd_post: number | null = null;
+    const calm = hr.filter((x) => x.t_ms < briefEnd);
+    let afterBlast: HrSample[] = [];
     if (t0 != null) {
       const near = hr.reduce((a, b) => (Math.abs(b.t_ms - t0) < Math.abs(a.t_ms - t0) ? b : a));
       at_blast = near.bpm;
@@ -245,14 +263,18 @@ export function computeMetrics(rawEvents: SessionEvent[], rawHr: HrSample[], dur
         const back = hr.find((x) => x.t_ms > pk.t_ms && x.bpm <= target);
         half = back ? s(back.t_ms - pk.t_ms) : null;
       }
-      rmssd_post = rmssd(hr.filter((x) => x.t_ms >= t0 && x.t_ms <= t0 + 60000));
+      afterBlast = hr.filter((x) => x.t_ms >= t0 && x.t_ms <= t0 + 60000);
     }
     const z = { calm: 0, elevated: 0, high: 0 };
     hr.forEach((x) => { const d = x.bpm - base; if (d < 15) z.calm++; else if (d < 35) z.elevated++; else z.high++; });
+    // both numbers from the same source, or comparing them means nothing
+    const trueBase = rmssd(calm), truePost = rmssd(afterBlast);
+    const hrv_estimated = trueBase == null || truePost == null;
     hrOut = {
       baseline: Math.round(base), peak: peak.bpm, peak_t_ms: peak.t_ms, at_blast, rise, half_recovery_s: half,
-      rmssd_base: rmssd(hr.filter((x) => x.t_ms < briefEnd)), rmssd_post,
-      hrv_estimated: !hr.some((x) => x.rr_ms?.length),
+      rmssd_base: hrv_estimated ? rmssdEstimate(calm) : trueBase,
+      rmssd_post: hrv_estimated ? rmssdEstimate(afterBlast) : truePost,
+      hrv_estimated,
       zones: { calm: z.calm / hr.length, elevated: z.elevated / hr.length, high: z.high / hr.length },
     };
   }
