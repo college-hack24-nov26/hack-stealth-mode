@@ -40,7 +40,7 @@ export interface Metrics {
   comms: { all: RadioTx[]; tx: number; talk_s: number; wpm: number | null; kills_reported: number; kills: number };
   hr: {
     baseline: number; peak: number; peak_t_ms: number; at_blast: number | null; rise: number | null;
-    half_recovery_s: number | null; rmssd_base: number | null; rmssd_post: number | null;
+    half_recovery_s: number | null; rmssd_base: number | null; rmssd_post: number | null; hrv_estimated: boolean;
     zones: { calm: number; elevated: number; high: number };
   } | null;
   shotRead: ShotRead | null;
@@ -75,8 +75,11 @@ export function scale(v: number | null | undefined, good: number, bad: number): 
 function mean(xs: number[]) { return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; }
 function avgOf(parts: (number | null)[]) { return mean(parts.filter((p): p is number => p != null)); }
 
+// The WHOOP's live broadcast has no R-R intervals, so without them each once-a-second reading stands in for one beat
+// interval (60000 / bpm). That follows the trend of real RMSSD but it is an estimate, and the debrief labels it so.
 function rmssd(samples: HrSample[]) {
-  const rr = samples.flatMap((x) => x.rr_ms ?? []);
+  let rr = samples.flatMap((x) => x.rr_ms ?? []);
+  if (rr.length < 8) rr = samples.filter((x) => x.bpm >= 30 && x.bpm <= 220).map((x) => 60000 / x.bpm);
   if (rr.length < 8) return null;
   const d = rr.slice(1).map((v, i) => (v - rr[i]) ** 2);
   return Math.sqrt(d.reduce((a, b) => a + b, 0) / d.length);
@@ -249,6 +252,7 @@ export function computeMetrics(rawEvents: SessionEvent[], rawHr: HrSample[], dur
     hrOut = {
       baseline: Math.round(base), peak: peak.bpm, peak_t_ms: peak.t_ms, at_blast, rise, half_recovery_s: half,
       rmssd_base: rmssd(hr.filter((x) => x.t_ms < briefEnd)), rmssd_post,
+      hrv_estimated: !hr.some((x) => x.rr_ms?.length),
       zones: { calm: z.calm / hr.length, elevated: z.elevated / hr.length, high: z.high / hr.length },
     };
   }
