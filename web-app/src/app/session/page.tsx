@@ -137,7 +137,7 @@ function Debrief() {
               <Stat label="Spike after blast" value={m.hr.rise != null ? `+${m.hr.rise}` : "—"} unit="bpm" sub={m.hr.at_blast != null ? `from ${m.hr.at_blast}` : undefined} tone={m.hr.rise == null ? undefined : toneLow(m.hr.rise, 18, 30)} />
               <Stat label="Half recovery" value={secs(m.hr.half_recovery_s, 0)} unit="s" sub="peak back halfway" tone={m.hr.half_recovery_s == null ? "bad" : toneLow(m.hr.half_recovery_s, 15, 30)} />
               <Stat label={m.hr.hrv_estimated ? "HRV calm (estimate)" : "HRV calm (RMSSD)"} value={secs(m.hr.rmssd_base, 0)} unit="ms" sub={m.hr.hrv_estimated ? "from heart rate, during briefing" : "during briefing"} />
-              <Stat label={m.hr.hrv_estimated ? "HRV after blast (estimate)" : "HRV after blast"} value={secs(m.hr.rmssd_post, 0)} unit="ms" sub={m.hr.rmssd_base && m.hr.rmssd_post ? `${Math.round((1 - m.hr.rmssd_post / m.hr.rmssd_base) * 100)}% drop` : undefined} />
+              <Stat label={m.hr.hrv_estimated ? "HRV after blast (estimate)" : "HRV after blast"} value={secs(m.hr.rmssd_post, 0)} unit="ms" sub={m.hr.rmssd_base && m.hr.rmssd_post ? (m.hr.rmssd_post <= m.hr.rmssd_base ? `${Math.round((1 - m.hr.rmssd_post / m.hr.rmssd_base) * 100)}% drop` : `${Math.round((m.hr.rmssd_post / m.hr.rmssd_base - 1) * 100)}% rise`) : undefined} />
             </div>
             <div className="card" style={{ marginTop: 12 }}>
               <div className="faint" style={{ fontSize: 12, marginBottom: 10 }}>Time in zone, relative to briefing baseline (+15 / +35 bpm)</div>
